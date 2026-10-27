@@ -1,0 +1,29 @@
+{
+  "name": "grubbs-worktrees",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local PWA that lists Grubbs ticket worktrees and drives grubbs-worktree.sh",
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1 -p 7421",
+    "build": "next build",
+    "start": "next start -H 127.0.0.1 -p 7420",
+    "typecheck": "tsc --noEmit",
+    "agent:install": "node scripts/agent.mjs install",
+    "agent:uninstall": "node scripts/agent.mjs uninstall",
+    "agent:status": "node scripts/agent.mjs status"
+  },
+  "engines": {
+    "node": ">=20.9"
+  },
+  "dependencies": {
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "7.0.2"
+  }
+}
