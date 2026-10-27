@@ -3,16 +3,11 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Grubbs Worktrees",
-  description: "Grubbs ticket worktrees: status, restart, logs, remove",
+  description: "Grubbs ticket worktrees: launch, ports, start and stop, logs",
   icons: { icon: "/icon.svg", apple: "/icon-192.png" },
 };
 
-export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f6f7f9" },
-    { media: "(prefers-color-scheme: dark)", color: "#16181d" },
-  ],
-};
+export const viewport: Viewport = { themeColor: "#090d12", colorScheme: "dark" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

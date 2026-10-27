@@ -1,0 +1,360 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Design 1 — Mission Control</title>
+<style>
+  :root { color-scheme: dark; }
+  .wrap { font-family: var(--font-sans, ui-sans-serif, -apple-system, system-ui, sans-serif); }
+  .intro h2 { margin: 0 0 4px; font-size: 18px; }
+  .intro p { margin: 0 0 14px; color: var(--muted-foreground, #8b98a8); font-size: 13.5px; line-height: 1.5; }
+
+  .mock {
+    --ink:#090d12; --panel:#0f151c; --panel2:#131b24; --line:#1e2935; --line2:#273444;
+    --text:#e6edf3; --dim:#8d9aab; --faint:#566476;
+    --app:#a3e635; --api:#38d6f5; --db:#b794ff; --warn:#fbbf24; --bad:#fb7185;
+    background:
+      radial-gradient(700px 260px at 0% 0%, rgba(163,230,53,.10), transparent 60%),
+      radial-gradient(600px 260px at 100% 0%, rgba(56,214,245,.08), transparent 60%),
+      var(--ink);
+    color: var(--text); border-radius: var(--radius, 14px); padding: 18px;
+    font-family: ui-sans-serif, -apple-system, "Inter", system-ui, sans-serif; font-size: 13px;
+    border: 1px solid #18212b; position: relative; overflow: hidden;
+  }
+  .mono { font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  /* top bar */
+  .top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  .brand { display:flex; align-items:center; gap:8px; font-weight:700; font-size:15px; letter-spacing:-.01em; margin-right:auto; }
+  .brand small { font-weight:500; color:var(--faint); font-size:12px; }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:4px 9px; border-radius:999px; background:var(--panel2); border:1px solid var(--line); color:var(--dim); font-size:12px; }
+  .pill b { color:var(--text); font-weight:600; }
+  .launch-btn { display:inline-flex; align-items:center; gap:8px; padding:7px 12px; border-radius:10px; border:1px solid rgba(163,230,53,.5);
+    background: linear-gradient(180deg, rgba(163,230,53,.22), rgba(163,230,53,.08)); color:#eaffc4; font-weight:600;
+    box-shadow: 0 0 0 0 rgba(163,230,53,.4), inset 0 1px 0 rgba(255,255,255,.08); animation: invite 3.2s ease-in-out infinite; }
+  kbd { font-family: ui-monospace, Menlo, monospace; font-size:10.5px; padding:1px 5px; border-radius:5px; border:1px solid var(--line2); background:#0b1117; color:var(--dim); }
+  @keyframes invite { 0%,70%,100% { box-shadow: 0 0 0 0 rgba(163,230,53,0), inset 0 1px 0 rgba(255,255,255,.08);} 80% { box-shadow: 0 0 0 6px rgba(163,230,53,.12), inset 0 1px 0 rgba(255,255,255,.08);} }
+
+  /* live dot */
+  .live { position:relative; width:8px; height:8px; border-radius:50%; background:currentColor; display:inline-block; flex:none; }
+  .live::after { content:""; position:absolute; inset:0; border-radius:50%; background:currentColor; animation: ping 2s cubic-bezier(0,0,.2,1) infinite; }
+  .live.slow::after { animation-duration: 3s; }
+  .off { width:8px; height:8px; border-radius:50%; border:1.5px solid var(--faint); display:inline-block; flex:none; }
+  @keyframes ping { 0% { transform:scale(1); opacity:.55 } 80%,100% { transform:scale(2.8); opacity:0 } }
+
+  /* expanded card */
+  .card { background: linear-gradient(180deg, var(--panel2), var(--panel)); border:1px solid var(--line); border-radius:14px; padding:14px; position:relative; }
+  .card.focus { border-color: rgba(163,230,53,.35); box-shadow: 0 0 0 1px rgba(163,230,53,.08), 0 10px 40px -12px rgba(163,230,53,.18); }
+  .head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .ticket { font-size:22px; font-weight:800; letter-spacing:-.02em; }
+  .ticket span { color: var(--faint); font-weight:700; }
+  .branch { padding:2px 8px; border-radius:6px; background:#0b1117; border:1px solid var(--line); color:var(--dim); font-size:12px; }
+  .uptime { margin-left:auto; display:flex; align-items:center; gap:10px; color:var(--dim); font-size:12px; }
+
+  .sockets { display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:10px; }
+  .sock { --c: var(--app); border:1px solid color-mix(in srgb, var(--c) 30%, var(--line)); background:
+      linear-gradient(180deg, color-mix(in srgb, var(--c) 9%, transparent), transparent 70%), #0b1117;
+    border-radius:12px; padding:11px 12px 10px; position:relative; overflow:hidden; }
+  .sock.api { --c: var(--api); } .sock.db { --c: var(--db); }
+  .sock .lbl { white-space:nowrap; min-height:24px; display:flex; align-items:center; gap:7px; font-size:10.5px; font-weight:700; letter-spacing:.12em; color: var(--c); }
+  .sock .lbl .tools { margin-left:auto; display:flex; gap:4px; }
+  .ico { width:24px; height:24px; display:grid; place-items:center; border-radius:7px; border:1px solid transparent; background:transparent; color:var(--dim); }
+  .ico:hover, .ico.hint { border-color: var(--line2); background: var(--panel2); color: var(--text); }
+  .port { font-size:30px; font-weight:700; letter-spacing:-.03em; line-height:1.1; margin:6px 0 2px; color:#f4f8fb; display:flex; align-items:baseline; gap:6px; }
+  .port .colon { color: var(--c); }
+  .host { font-size:11.5px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sock .row { display:flex; align-items:center; gap:6px; margin-top:9px; }
+  .chip { white-space:nowrap; display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border-radius:7px; border:1px solid var(--line2); background:var(--panel2); font-size:11.5px; color:var(--text); }
+  .chip.primary { border-color: color-mix(in srgb, var(--c) 60%, transparent); background: color-mix(in srgb, var(--c) 16%, transparent); color: #fff; font-weight:600; }
+  .copied { position:absolute; right:10px; top:40px; font-size:11px; color: var(--c); opacity:0; animation: copied 6s ease-in-out infinite; }
+  @keyframes copied { 0%,55% {opacity:0; transform:translateY(4px)} 60%,75% {opacity:1; transform:none} 82%,100% {opacity:0} }
+  .beat { position:absolute; left:0; right:0; bottom:0; height:22px; opacity:.55; pointer-events:none; }
+  .beat g { animation: scan 4s linear infinite; }
+  .sock.api .beat g { animation-duration: 5.5s; }
+  @keyframes scan { from { transform: translateX(0) } to { transform: translateX(-200px) } }
+
+  .meta { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin-top:12px; padding-top:12px; border-top:1px dashed var(--line); font-size:12px; color:var(--dim); }
+  .repo { display:inline-flex; align-items:center; gap:6px; }
+  .repo i { width:7px; height:7px; border-radius:2px; background: var(--app); display:inline-block; }
+  .repo.dirty i { background: var(--warn); box-shadow: 0 0 8px rgba(251,191,36,.6); }
+  .repo .n { color: var(--warn); font-weight:600; }
+
+  .actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; align-items:center; }
+  .btn { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:9px; border:1px solid var(--line2); background:var(--panel2); font-size:12px; color:var(--text); }
+  .btn.t3 { border-color: rgba(183,148,255,.45); background: rgba(183,148,255,.12); }
+  .btn.ghost { background: transparent; }
+  .spacer { flex:1; }
+
+  /* inline live log */
+  .term { margin-top:12px; border:1px solid var(--line); border-radius:10px; background:#070a0e; overflow:hidden; }
+  .term .tabs { display:flex; align-items:center; gap:2px; padding:5px 6px; border-bottom:1px solid var(--line); background:#0b1016; font-size:11.5px; }
+  .tab { padding:4px 9px; border-radius:6px; color:var(--dim); display:inline-flex; align-items:center; gap:6px; }
+  .tab.on { background: var(--panel2); color: var(--text); }
+  .tab .sw { width:6px; height:6px; border-radius:50%; }
+  .follow { margin-left:auto; display:inline-flex; align-items:center; gap:6px; color: var(--app); font-size:11px; padding-right:6px; }
+  .lines { height:118px; overflow:hidden; position:relative; font-size:11.5px; line-height:19px; padding:0 10px; }
+  .lines .roll { animation: roll 9s steps(6) infinite; }
+  @keyframes roll { from { transform: translateY(0) } to { transform: translateY(-114px) } }
+  .l .t { color: var(--faint); margin-right:8px; } .ok { color: var(--app); } .get { color: var(--api); } .warnc { color: var(--warn); }
+  .lines::after { content:""; position:absolute; left:0; right:0; top:0; height:26px; background: linear-gradient(#070a0e, transparent); }
+
+  /* compact rows */
+  .list { display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+  .mini { position:relative; display:grid; grid-template-columns: auto 1fr auto auto; align-items:center; gap:12px; padding:10px 12px; border-radius:12px; background: var(--panel); border:1px solid var(--line); }
+  .mini .tk { font-weight:800; font-size:15px; letter-spacing:-.02em; }
+  .mini .tk span { color: var(--faint); }
+  .mini .br { color:var(--dim); font-size:11.5px; display:flex; align-items:center; gap:8px; min-width:0; }
+  .ports { display:flex; gap:5px; }
+  .pchip { display:inline-flex; align-items:center; gap:5px; padding:3px 7px; border-radius:6px; font-size:11.5px; border:1px solid var(--line); background:#0b1117; color:#dfe7ee; }
+  .pchip .live, .pchip .off { width:6px; height:6px; }
+  .pchip.app { color: #e9ffc9; } .pchip.app .live { color: var(--app); }
+  .pchip.api .live { color: var(--api); } .pchip.db .live { color: var(--db); }
+  .pchip.stopped { color: var(--faint); border-style: dashed; }
+  .warnpill { font-size:10.5px; padding:1px 7px; border-radius:999px; color: var(--warn); border:1px solid rgba(251,191,36,.35); background: rgba(251,191,36,.08); }
+  .mini.stopped { opacity:.85; background: repeating-linear-gradient(135deg, var(--panel), var(--panel) 10px, #0d1218 10px, #0d1218 20px); }
+  .startbtn { display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:9px; font-weight:600; font-size:12px; color:#0a0e13; background: var(--app); border:0; }
+  .openbtn { display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:9px; font-weight:600; font-size:12px; border:1px solid rgba(163,230,53,.5); background: rgba(163,230,53,.12); color:#eaffc4; }
+  .booting { color: var(--api); font-size:11px; display:inline-flex; gap:6px; align-items:center; }
+  .spin { width:11px; height:11px; border-radius:50%; border:2px solid rgba(56,214,245,.25); border-top-color: var(--api); animation: spin .8s linear infinite; display:inline-block; }
+  @keyframes spin { to { transform: rotate(360deg) } }
+
+  .foot { display:flex; flex-wrap:wrap; gap:12px; margin-top:14px; color: var(--faint); font-size:11.5px; }
+  .foot span { display:inline-flex; gap:6px; align-items:center; }
+
+  .warnbar { display:flex; align-items:center; gap:8px; margin-top:10px; font-size:12px; color: #fde7a6; padding:7px 10px; border-radius:9px; background: rgba(251,191,36,.07); border:1px solid rgba(251,191,36,.25); }
+  .warnbar .btn { margin-left:auto; padding:3px 8px; font-size:11.5px; }
+
+  /* annotations */
+  .ann { display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; background:#ff5fa2; color:#fff; font-size:10.5px; font-weight:800;
+    box-shadow: 0 0 0 3px rgba(255,95,162,.25); font-family: ui-sans-serif, system-ui; flex:none; }
+  .ann.abs { position:absolute; z-index:3; }
+  .notes { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:10px 18px; margin-top:16px; font-size:13px; line-height:1.5; }
+  .note { display:flex; gap:10px; align-items:flex-start; }
+  .note b { display:block; }
+  .note p { overflow-wrap:anywhere; margin:2px 0 0; color: var(--muted-foreground, #8b98a8); }
+
+  @media (prefers-reduced-motion: reduce) { *, *::after { animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="intro">
+    <h2>1 · Mission Control: ports up front</h2>
+    <p>Each worktree becomes three <b>sockets</b>: APP, API and DB. Each socket has its own color, a big port number, and its own controls. You always see what's running and where, and every port is one click from your clipboard.</p>
+  </div>
+
+  <div class="mock">
+    <!-- top bar -->
+    <div class="top">
+      <div class="brand">
+        <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+          <path d="M6 23V4" stroke="#3b4a5c" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M6 16c0-4 3-5 7-5h1" stroke="#3b4a5c" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M6 9c0-3 3-4 6-4h7" stroke="#3b4a5c" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M6 21c0-2 2-3 5-3h9" stroke="#3b4a5c" stroke-width="2.2" stroke-linecap="round"/>
+          <circle cx="20" cy="5" r="3" fill="#a3e635"><animate attributeName="r" values="3;3.6;3" dur="2s" repeatCount="indefinite"/></circle>
+          <circle cx="15" cy="11" r="3" fill="#38d6f5"><animate attributeName="r" values="3;3.6;3" dur="2s" begin=".4s" repeatCount="indefinite"/></circle>
+          <circle cx="21" cy="18" r="3" fill="#b794ff"><animate attributeName="r" values="3;3.6;3" dur="2s" begin=".8s" repeatCount="indefinite"/></circle>
+        </svg>
+        worktrees <small>grubbs</small>
+      </div>
+      <span class="pill"><span class="live" style="color:var(--app)"></span><b>3</b> live</span>
+      <span class="pill mono"><b>9</b> ports bound</span>
+      <span class="pill">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="#38d6f5" aria-hidden="true"><path d="M13 7h2v2h-2zM10 7h2v2h-2zM7 7h2v2H7zM10 4h2v2h-2zM4 10h2v2H4zm3 0h2v2H7zm3 0h2v2h-2zm3 0h2v2h-2zm3 0h2v2h-2zM2 13h19.5c.5-1 2-1.5 2.5-1-.5-1.5-2-1.5-2.5-1.2-.3-1.3-1.3-2-1.3-2s-1 1.2-.5 2.6H2.2C2 15 3 21 11 21c6 0 9-3 10.5-8z"/></svg>
+        docker
+      </span>
+      <button class="launch-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Launch ticket <kbd>⌘K</kbd>
+      </button>
+    </div>
+
+    <!-- expanded card -->
+    <div class="card focus">
+      <span class="ann abs" style="left:-6px;top:-6px">1</span>
+      <div class="head">
+        <div class="ticket"><span>#</span>2130</div>
+        <span class="branch mono">mithilesh/2130</span>
+        <div class="uptime">
+          <span>up <b style="color:var(--text)">2h 14m</b></span>
+          <!-- health ring -->
+          <svg width="34" height="34" viewBox="0 0 36 36" aria-label="3 of 3 services up">
+            <circle cx="18" cy="18" r="14" fill="none" stroke="#1e2935" stroke-width="4"/>
+            <circle cx="18" cy="18" r="14" fill="none" stroke="#a3e635" stroke-width="4" stroke-dasharray="26 62" stroke-dashoffset="0" transform="rotate(-90 18 18)" stroke-linecap="round"/>
+            <circle cx="18" cy="18" r="14" fill="none" stroke="#38d6f5" stroke-width="4" stroke-dasharray="26 62" stroke-dashoffset="-29.3" transform="rotate(-90 18 18)" stroke-linecap="round"/>
+            <circle cx="18" cy="18" r="14" fill="none" stroke="#b794ff" stroke-width="4" stroke-dasharray="26 62" stroke-dashoffset="-58.6" transform="rotate(-90 18 18)" stroke-linecap="round"/>
+            <text x="18" y="21.5" text-anchor="middle" font-size="10" font-weight="700" fill="#e6edf3" font-family="ui-sans-serif,system-ui">3/3</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="sockets">
+        <div class="sock app">
+                    <div class="lbl"><span class="live"></span>APP · NEXT DEV
+            <span class="tools">
+              <button class="ico" title="Restart frontend"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg></button>
+              <button class="ico" title="Stop"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
+            </span>
+          </div>
+          <div class="port mono"><span><span class="colon">:</span>3023</span></div>
+          <div class="host mono">grubbs-2130.localhost</div>
+          <div class="row">
+            <button class="chip primary">Open <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M7 17 17 7M8 7h9v9"/></svg></button>
+            <button class="chip mono" title="Copy URL">⧉</button>
+            <button class="chip" title="Logins">🔑 logins</button>
+          </div>
+          <svg class="beat" viewBox="0 0 200 22" preserveAspectRatio="none" aria-hidden="true"><g>
+            <path d="M0 15H30l4-9 5 14 4-8 3 3H95l4-9 5 14 4-8 3 3H160l3-6 4 9 3-3h30M200 15h30l4-9 5 14 4-8 3 3h53l4-9 5 14 4-8 3 3h46l3-6 4 9 3-3h30" fill="none" stroke="#a3e635" stroke-width="1.4"/>
+          </g></svg>
+        </div>
+
+        <div class="sock api">
+          <div class="lbl"><span class="live slow"></span>API · DOCKER 3/3
+            <span class="tools">
+              <button class="ico" title="Restart backend"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg></button>
+              <button class="ico" title="Stop"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
+            </span>
+          </div>
+          <div class="port mono"><span><span class="colon">:</span>8003</span></div>
+          <div class="host mono">localhost · web, postgres, redis</div>
+          <div class="row">
+            <button class="chip">/docs ↗</button>
+            <button class="chip mono hint" title="Copy URL">⧉ copy</button>
+          </div>
+          <span class="copied mono">copied http://localhost:8003 ✓</span>
+          <svg class="beat" viewBox="0 0 200 22" preserveAspectRatio="none" aria-hidden="true"><g>
+            <path d="M0 15H50l4-9 5 14 4-8 3 3H140l4-9 5 14 4-8 3 3h40M200 15h50l4-9 5 14 4-8 3 3h77l4-9 5 14 4-8 3 3h40" fill="none" stroke="#38d6f5" stroke-width="1.4"/>
+          </g></svg>
+        </div>
+
+        <div class="sock db">
+          <span class="ann abs" style="right:8px;top:8px">2</span>
+          <div class="lbl"><span class="live slow"></span>DB · POSTGRES<span class="tools" style="width:24px"></span></div>
+          <div class="port mono"><span><span class="colon">:</span>5435</span></div>
+          <div class="host mono">admin / admin · grubbs_db</div>
+          <div class="row">
+            <button class="chip mono">⧉ psql url</button>
+            <button class="chip">TablePlus</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="meta">
+        <span class="repo mono"><i></i>crm-backend</span>
+        <span class="repo dirty mono"><i></i>crm-frontend <span class="n">+3 ~1</span></span>
+        <span class="repo mono"><i></i>engineering-playbook</span>
+        <span class="spacer"></span>
+        <span class="faint">git checked 12s ago</span>
+      </div>
+
+      <div class="actions">
+        <span class="ann">3</span>
+        <button class="btn t3">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b794ff" stroke-width="2.2"><path d="M4 6h16M12 6v13"/></svg>
+          Open in T3 Code
+        </button>
+        <button class="btn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 9 3 3-3 3M13 15h4"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg>
+          Terminal here
+        </button>
+        <button class="btn">Cursor</button>
+        <button class="btn">Finder</button>
+        <span class="spacer"></span>
+        <button class="btn ghost">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+          Stop all
+        </button>
+        <button class="btn ghost" title="More: remove, receipt, rebuild snapshot">⋯</button>
+      </div>
+
+      <div class="warnbar">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2.2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        T3 Code project wasn't linked (HTTP 400 on launch). The worktree is fine.
+        <button class="btn">Retry link</button>
+      </div>
+
+      <div class="term">
+        <div class="tabs">
+          <span class="ann" style="margin-right:4px">4</span>
+          <span class="tab on mono"><span class="sw" style="background:var(--app)"></span>app</span>
+          <span class="tab mono"><span class="sw" style="background:var(--api)"></span>api</span>
+          <span class="tab mono"><span class="sw" style="background:var(--dim)"></span>launch receipt</span>
+          <span class="follow mono"><span class="live" style="width:6px;height:6px"></span>following</span>
+        </div>
+        <div class="lines mono">
+          <div class="roll">
+            <div class="l"><span class="t">15:02:11</span><span class="ok">✓</span> Ready in 841ms</div>
+            <div class="l"><span class="t">15:02:13</span>○ Compiling / …</div>
+            <div class="l"><span class="t">15:02:18</span><span class="ok">✓</span> Compiled / in 4.7s</div>
+            <div class="l"><span class="t">15:02:18</span><span class="get">GET</span> / 200 in 4952ms</div>
+            <div class="l"><span class="t">15:03:40</span><span class="get">GET</span> /deals 200 in 212ms</div>
+            <div class="l"><span class="t">15:03:41</span><span class="get">GET</span> /api/auth/session 200 in 18ms</div>
+            <div class="l"><span class="t">15:04:02</span><span class="warnc">⚠</span> Fast Refresh had to perform a full reload</div>
+            <div class="l"><span class="t">15:04:03</span><span class="get">GET</span> /deals/481 200 in 390ms</div>
+            <div class="l"><span class="t">15:04:20</span><span class="ok">✓</span> Compiled /deals/[id] in 1.2s</div>
+            <div class="l"><span class="t">15:04:21</span><span class="get">GET</span> /deals/481 200 in 88ms</div>
+            <div class="l"><span class="t">15:05:07</span><span class="get">GET</span> /contacts 200 in 301ms</div>
+            <div class="l"><span class="t">15:05:09</span><span class="get">GET</span> /api/auth/session 200 in 12ms</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- compact rows -->
+    <div class="list">
+      <div class="mini">
+        <div class="tk mono"><span>#</span>1997</div>
+        <div class="br mono">mithilesh/1997</div>
+        <div class="ports mono">
+          <span class="pchip app"><span class="live"></span>:3022</span>
+          <span class="pchip api"><span class="live slow"></span>:8002</span>
+          <span class="pchip db"><span class="live slow"></span>:5434</span>
+        </div>
+        <button class="openbtn">Open ↗</button>
+      </div>
+      <div class="mini">
+        <div class="tk mono"><span>#</span>2070</div>
+        <div class="br mono">mithilesh/2070 <span class="warnpill">● uncommitted</span></div>
+        <div class="ports mono">
+          <span class="pchip app"><span class="live"></span>:3024</span>
+          <span class="pchip api"><span class="spin" style="width:8px;height:8px;border-width:1.5px"></span>:8004</span>
+          <span class="pchip db"><span class="live slow"></span>:5436</span>
+        </div>
+        <span class="booting mono">migrating…</span>
+      </div>
+      <div class="mini stopped">
+        <span class="ann abs" style="left:-6px;top:-6px">5</span>
+        <div class="tk mono"><span>#</span>2076</div>
+        <div class="br mono">mithilesh/2076 <span class="faint">· stopped 3d ago</span></div>
+        <div class="ports mono">
+          <span class="pchip stopped"><span class="off"></span>:3021</span>
+          <span class="pchip stopped"><span class="off"></span>:8001</span>
+          <span class="pchip stopped"><span class="off"></span>:5433</span>
+        </div>
+        <button class="startbtn">▶ Start</button>
+      </div>
+    </div>
+
+    <div class="foot mono">
+      <span><kbd>1</kbd>–<kbd>9</kbd> open app</span>
+      <span><kbd>C</kbd> copy URLs</span>
+      <span><kbd>L</kbd> logs</span>
+      <span><kbd>T</kbd> T3 Code</span>
+      <span><kbd>⌘K</kbd> launch / jump</span>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><span class="ann">1</span><div><b>Ports are the headline, not grey footnotes</b><p>Today <span class="mono">:3022</span> is rendered muted next to "Frontend". Here each port is 30px mono with a color per service, so you can find one from across the room.</p></div></div>
+    <div class="note"><span class="ann">2</span><div><b>The Postgres port comes back</b><p>The script already returns <span class="mono">pgPort</span>, but the UI's type drops it. The DB socket copies a ready <span class="mono">postgres://admin:admin@localhost:5435/grubbs_db</span>.</p></div></div>
+    <div class="note"><span class="ann">3</span><div><b>No more <span class="mono">cd … &amp;&amp; claude</span></b><p>The launch summary tells you to open a terminal. Instead: buttons for T3 Code, a terminal in the worktree, the editor, and Finder.</p></div></div>
+    <div class="note"><span class="ann">4</span><div><b>Logs follow, and the receipt is kept</b><p>Logs open in a drawer that keeps tailing, instead of a one-off 200-line modal. "launch receipt" is the saved summary from the last launch, so it survives hide and reload.</p></div></div>
+    <div class="note"><span class="ann">5</span><div><b>Start / Stop, not only Restart</b><p>A worktree you parked keeps its ports, and one ▶ starts it. This needs a <span class="mono">stop &lt;t&gt;</span> command in the script (compose stop + stop_frontend).</p></div></div>
+    <div class="note"><span class="ann" style="background:#38d6f5;box-shadow:0 0 0 3px rgba(56,214,245,.25)">✓</span><div><b>Per-service controls live on the service</b><p>The six equal-weight buttons per row become ↻ and ■ on each socket. Remove moves into ⋯, away from "Backend log".</p></div></div>
+  </div>
+</div>
+</body>
+</html>

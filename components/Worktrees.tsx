@@ -1,104 +1,92 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-
-type Repo = { name: string; branch: string | null; dirty: boolean | null };
-type Worktree = {
-  ticket: string;
-  branch: string | null;
-  project: string | null;
-  feUrl: string | null;
-  apiUrl: string | null;
-  fePort: number | null;
-  webPort: number | null;
-  frontendUp: boolean;
-  containersRunning: number;
-  apiAnswering: boolean;
-  repos: Repo[];
-};
-type Action = "restart-frontend" | "restart-backend" | "remove" | "launch";
-type JobState = {
-  id: string;
-  ticket: string;
-  action: Action;
-  status: "running" | "ok" | "failed" | "lost";
-  exitCode: number | null;
-  text: string;
-  offset: number;
-  refusedDirty: boolean;
-};
-type ListResponse = { docker: boolean; git: boolean; worktrees: Worktree[]; jobs: JobState[]; checkedAt: number };
-type LogsView = { ticket: string; which: "frontend" | "backend"; text: string; loading: boolean; error?: string };
-type RemoveDialog = {
-  ticket: string;
-  stage: "confirm" | "force";
-  deleteBranches: boolean;
-  fresh?: Worktree;
-  checking: boolean;
-  error?: string;
-  typed: string;
-};
+import { parseLaunch } from "@/lib/stages";
+import type { Action, Capabilities, JobState, ListResponse, RevealApp, WorktreeView } from "@/lib/types";
+import { Card, type CardHandlers, type LogTab } from "./Card";
+import { ACTION_DONE, ACTION_LABEL, api, isRunning, post, tail } from "./client";
+import * as I from "./icons";
+import { LaunchPanel, Receipt } from "./Launch";
+import { DEFAULT_OPTS, type LaunchOpts, Launcher } from "./Launcher";
+import { type RemoveDialog, RemoveModal } from "./RemoveModal";
 
 const FAST_VISIBLE_MS = 5_000;
 const FAST_HIDDEN_MS = 30_000;
 const GIT_MS = 60_000;
 const JOB_POLL_MS = 1_000;
+const FRESH_RECEIPT_MS = 12 * 3600_000; // a launch that finished while the window was closed waits this long
 
-const ACTION_LABEL: Record<Action, string> = {
-  "restart-frontend": "Restarting frontend",
-  "restart-backend": "Restarting backend",
-  remove: "Removing",
-  launch: "Launching",
+type Toast = { id: number; text: string; tone?: "ok" | "bad" };
+
+const optsFromArgs = (args: string[]): LaunchOpts => {
+  const after = (flag: string) => {
+    const i = args.indexOf(flag);
+    return i >= 0 ? (args[i + 1] ?? "") : "";
+  };
+  return {
+    ...DEFAULT_OPTS,
+    backendBase: after("--backend-base"),
+    frontendBase: after("--frontend-base"),
+    start: !args.includes("--no-start"),
+    refreshSnapshot: false, // a retry or repair should not force another rebuild of many minutes
+    openWhenUp: false,
+  };
 };
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    cache: "no-store",
-    headers: { "content-type": "application/json", "x-grubbs-worktrees": "1", ...init?.headers },
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-  return body as T;
+function seenReceipts(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem("gw.seenReceipts") ?? "[]");
+  } catch {
+    return [];
+  }
 }
 
-const post = <T,>(path: string, body: unknown = {}) => api<T>(path, { method: "POST", body: JSON.stringify(body) });
-
-const scrollToEnd = (el: HTMLPreElement | null) => {
-  if (el) el.scrollTop = el.scrollHeight;
-};
-
-const tail = (text: string, lines = 15) => text.trimEnd().split("\n").slice(-lines).join("\n");
-
-function backendState(w: Worktree, docker: boolean | null): { label: string; tone: string } {
-  if (docker === false) return { label: "unknown", tone: "unknown" };
-  const n = w.containersRunning;
-  if (n <= 0) return { label: "Stopped", tone: "off" };
-  if (n < 3) return { label: `Partial ${n}/3`, tone: "warn" };
-  return w.apiAnswering ? { label: "Running", tone: "ok" } : { label: "Starting", tone: "warn" };
+function markReceiptsSeen(ids: string[]) {
+  const seen = [...ids, ...seenReceipts().filter((x) => !ids.includes(x))];
+  localStorage.setItem("gw.seenReceipts", JSON.stringify(seen.slice(0, 50)));
 }
 
-// "Running" for the badge: anything of the worktree is up, i.e. it is using memory or ports.
-const isRunning = (w: Worktree) => w.frontendUp || w.containersRunning > 0;
+function notify(title: string, body: string) {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted" || !document.hidden) return;
+  new Notification(title, { body, icon: "/icon-192.png", tag: title });
+}
 
 export default function Worktrees() {
-  const [list, setList] = useState<Worktree[] | null>(null);
+  const [list, setList] = useState<WorktreeView[] | null>(null);
   const [docker, setDocker] = useState<boolean | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
+  const [gitCheckedAt, setGitCheckedAt] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [dirty, setDirty] = useState<Record<string, string[]>>({});
   const [jobs, setJobs] = useState<Record<string, JobState>>({});
   const [rowError, setRowError] = useState<Record<string, string>>({});
-  const [notice, setNotice] = useState<string | null>(null);
-  const [logs, setLogs] = useState<LogsView | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
   const [removeDlg, setRemoveDlg] = useState<RemoveDialog | null>(null);
-  const [launchInput, setLaunchInput] = useState("");
-  const [launchTicket, setLaunchTicket] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null | undefined>(undefined); // undefined: not chosen yet
+  const [logsTab, setLogsTab] = useState<LogTab | null>(null);
+  const [palette, setPalette] = useState(false);
+  const [panel, setPanel] = useState<string | null>(null); // the ticket whose launch the top panel shows
+  const [celebrate, setCelebrate] = useState<string | null>(null);
+  const [receiptFor, setReceiptFor] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+  const [caps, setCaps] = useState<Capabilities | null>(null);
+  const [dockerStarting, setDockerStarting] = useState(false);
 
   const jobsRef = useRef(jobs);
   jobsRef.current = jobs;
+  const panelRef = useRef(panel);
+  panelRef.current = panel;
   const removeOptsRef = useRef<Record<string, boolean>>({}); // ticket -> deleteBranches, for the Force step
+  const finishedRef = useRef(new Set<string>()); // job ids already reported, which a late list must not revive
+  const openWhenUpRef = useRef(new Set<string>());
+
+  const say = useCallback((text: string, tone?: Toast["tone"]) => setToast({ id: Date.now(), text, tone }), []);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast((x) => (x?.id === toast.id ? null : x)), toast.tone === "bad" ? 5000 : 2200);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // ---------------------------------------------------------------------------------------------
   // Polling
@@ -116,20 +104,46 @@ export default function Worktrees() {
       setDocker(r.docker);
       setCheckedAt(r.checkedAt);
       setListError(null);
+      if (r.docker) setDockerStarting(false);
       if (r.git) {
+        setGitCheckedAt(r.checkedAt);
         setDirty(
           Object.fromEntries(r.worktrees.map((w) => [w.ticket, w.repos.filter((x) => x.dirty).map((x) => x.name)])),
         );
       }
-      // Jobs started before a reload, or from another window, still show their spinner.
+      setExpanded((e) => {
+        if (e !== undefined) return e;
+        const saved = localStorage.getItem("gw.expanded");
+        return r.worktrees.some((w) => w.ticket === saved) ? saved : (r.worktrees[0]?.ticket ?? null);
+      });
+      // Jobs started before a reload, or from another window, still show their progress.
       const known = jobsRef.current;
-      const adopt = r.jobs.filter((j) => known[j.ticket]?.id !== j.id);
+      const adopt = r.jobs.filter((j) => known[j.ticket]?.id !== j.id && !finishedRef.current.has(j.id));
       if (adopt.length) {
         setJobs((prev) => {
           const next = { ...prev };
           for (const j of adopt) next[j.ticket] = { ...j, text: "", offset: 0 };
           return next;
         });
+      }
+      const launch = adopt.find((j) => j.action === "launch");
+      if (launch && !panelRef.current) {
+        panelRef.current = launch.ticket;
+        setPanel(launch.ticket);
+      }
+      // A launch that finished while the window was closed: the newest one's receipt is waiting.
+      if (!panelRef.current) {
+        const seen = new Set(seenReceipts());
+        const fresh = r.worktrees
+          .filter(
+            (w) =>
+              w.lastLaunch?.status === "ok" &&
+              w.lastLaunch.finishedAt &&
+              Date.now() - w.lastLaunch.finishedAt < FRESH_RECEIPT_MS &&
+              !seen.has(w.lastLaunch.id),
+          )
+          .sort((a, b) => b.lastLaunch!.finishedAt! - a.lastLaunch!.finishedAt!)[0];
+        if (fresh) setPanel(fresh.ticket);
       }
     } catch (e) {
       setListError((e as Error).message);
@@ -143,10 +157,13 @@ export default function Worktrees() {
     let timer: ReturnType<typeof setTimeout>;
     const schedule = () => {
       clearTimeout(timer);
-      timer = setTimeout(async () => {
-        await refresh(false);
-        schedule();
-      }, document.hidden ? FAST_HIDDEN_MS : FAST_VISIBLE_MS);
+      timer = setTimeout(
+        async () => {
+          await refresh(false);
+          schedule();
+        },
+        document.hidden ? FAST_HIDDEN_MS : FAST_VISIBLE_MS,
+      );
     };
     const onVisible = () => {
       if (!document.hidden) refresh(true); // the window opened: the slow git check too
@@ -157,6 +174,9 @@ export default function Worktrees() {
     const git = setInterval(() => !document.hidden && refresh(true), GIT_MS);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
+    api<Capabilities>("/api/capabilities")
+      .then(setCaps)
+      .catch(() => {});
     return () => {
       clearTimeout(timer);
       clearInterval(git);
@@ -164,6 +184,15 @@ export default function Worktrees() {
       window.removeEventListener("focus", onVisible);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (expanded) localStorage.setItem("gw.expanded", expanded);
+  }, [expanded]);
+
+  // A panel for a worktree that is gone (removed from a terminal, say) would show nothing and block others.
+  useEffect(() => {
+    if (panel && list && !jobs[panel] && !list.some((w) => w.ticket === panel)) setPanel(null);
+  }, [panel, list, jobs]);
 
   // Badge on the installed app's Dock icon, and in the title for a plain tab.
   useEffect(() => {
@@ -177,10 +206,19 @@ export default function Worktrees() {
   // ---------------------------------------------------------------------------------------------
   // Jobs
 
+  const dropJob = useCallback(
+    (ticket: string) =>
+      setJobs((prev) => {
+        const { [ticket]: _, ...rest } = prev;
+        return rest;
+      }),
+    [],
+  );
+
   const openForceDialog = useCallback(async (ticket: string) => {
     setRemoveDlg({ ticket, stage: "force", deleteBranches: removeOptsRef.current[ticket] ?? false, checking: true, typed: "" });
     try {
-      const fresh = await api<Worktree>(`/api/worktrees/${ticket}`);
+      const fresh = await api<WorktreeView>(`/api/worktrees/${ticket}`);
       setRemoveDlg((d) => (d && d.ticket === ticket ? { ...d, fresh, checking: false } : d));
     } catch (e) {
       setRemoveDlg((d) => (d && d.ticket === ticket ? { ...d, checking: false, error: (e as Error).message } : d));
@@ -190,22 +228,45 @@ export default function Worktrees() {
   const onJobDone = useCallback(
     (job: JobState) => {
       const ok = job.status === "ok";
-      if (job.action === "remove" && ok) {
-        setNotice(`grubbs-${job.ticket} removed`);
-        setJobs((prev) => {
-          const { [job.ticket]: _, ...rest } = prev;
-          return rest;
-        });
+      const t = job.ticket;
+      finishedRef.current.add(job.id);
+      if (job.action === "launch") {
+        const v = parseLaunch(job.text, job.status, job.args.includes("--no-start"));
+        if (ok) {
+          setCelebrate(t);
+          setPanel((p) => p ?? t);
+          const p = v.ports;
+          notify(
+            v.finished === "ready" ? `grubbs-${t} is ready` : `grubbs-${t} is up`,
+            p ? `app :${p.fe} · api :${p.web} · db :${p.pg}` : "",
+          );
+          if (openWhenUpRef.current.delete(t) && v.finished === "up") post(`/api/worktrees/${t}/open`).catch(() => {});
+        } else {
+          openWhenUpRef.current.delete(t);
+          notify(`Launch of #${t} failed`, v.stages.find((s) => s.state === "failed")?.warning ?? "");
+          setPanel((p) => p ?? t);
+        }
+      } else if (job.action === "remove" && ok) {
+        say(`grubbs-${t} removed`, "ok");
+        dropJob(t);
+        setExpanded((e) => (e === t ? null : e));
+        setPanel((p) => (p === t ? null : p));
+        setReceiptFor((r) => (r === t ? null : r));
       } else if (job.action === "remove" && job.refusedDirty) {
-        setRowError((e) => ({ ...e, [job.ticket]: "Refused: uncommitted changes. Force remove is offered." }));
-        openForceDialog(job.ticket);
-      } else if (!ok && job.action !== "launch") {
+        dropJob(t);
+        setRowError((e) => ({ ...e, [t]: "Refused: uncommitted changes. Force remove is offered." }));
+        openForceDialog(t);
+      } else if (ok) {
+        say(`#${t} ${ACTION_DONE[job.action]}`, "ok");
+        dropJob(t);
+      } else {
         const why = job.status === "lost" ? "the command stopped without an exit code" : `exit ${job.exitCode}`;
-        setRowError((e) => ({ ...e, [job.ticket]: `${ACTION_LABEL[job.action]} failed (${why}):\n${tail(job.text)}` }));
+        setRowError((e) => ({ ...e, [t]: `${ACTION_LABEL[job.action]} failed (${why}):\n${tail(job.text)}` }));
+        dropJob(t);
       }
       refresh(true);
     },
-    [refresh, openForceDialog],
+    [refresh, openForceDialog, dropJob, say],
   );
 
   useEffect(() => {
@@ -232,53 +293,110 @@ export default function Worktrees() {
     return () => clearInterval(timer);
   }, [onJobDone]);
 
-  const startAction = useCallback(
-    async (ticket: string, action: Action, extra: Record<string, unknown> = {}) => {
-      setRowError((e) => {
-        const { [ticket]: _, ...rest } = e;
-        return rest;
-      });
-      setNotice(null);
+  const track = useCallback((meta: JobState) => {
+    const job: JobState = { ...meta, status: "running", exitCode: null, finishedAt: null, text: "", offset: 0, refusedDirty: false };
+    jobsRef.current = { ...jobsRef.current, [meta.ticket]: job };
+    setJobs((prev) => ({ ...prev, [meta.ticket]: job }));
+  }, []);
+
+  const clearError = (ticket: string) =>
+    setRowError((e) => {
+      const { [ticket]: _, ...rest } = e;
+      return rest;
+    });
+
+  const act = useCallback(
+    async (ticket: string, action: Exclude<Action, "launch">, extra: Record<string, unknown> = {}) => {
+      clearError(ticket);
       try {
-        const meta = await post<JobState>(
-          action === "launch" ? "/api/launch" : `/api/worktrees/${ticket}/actions`,
-          action === "launch" ? { ticket } : { action, ...extra },
-        );
-        const job: JobState = { ...meta, status: "running", exitCode: null, text: "", offset: 0, refusedDirty: false };
-        jobsRef.current = { ...jobsRef.current, [ticket]: job };
-        setJobs((prev) => ({ ...prev, [ticket]: job }));
+        track(await post<JobState>(`/api/worktrees/${ticket}/actions`, { action, ...extra }));
       } catch (e) {
         setRowError((err) => ({ ...err, [ticket]: (e as Error).message }));
       }
     },
-    [],
+    [track],
   );
+
+  const launch = useCallback(
+    async (ticket: string, o: LaunchOpts) => {
+      clearError(ticket);
+      if (typeof Notification !== "undefined" && Notification.permission === "default") Notification.requestPermission();
+      try {
+        const meta = await post<JobState>("/api/launch", {
+          ticket,
+          backendBase: o.backendBase.trim() || undefined,
+          frontendBase: o.frontendBase.trim() || undefined,
+          noStart: !o.start,
+          refreshSnapshot: o.refreshSnapshot,
+        });
+        track(meta);
+        if (o.openWhenUp && o.start) openWhenUpRef.current.add(ticket);
+        setCelebrate(null);
+        setPanel(ticket);
+        setExpanded(ticket);
+        setPalette(false);
+      } catch (e) {
+        say(`Could not launch #${ticket}: ${(e as Error).message}`, "bad");
+      }
+    },
+    [track, say],
+  );
+
+  // Closing one receipt acknowledges every finished launch, so old ones do not queue up behind it.
+  const closePanel = () => {
+    if (!panel) return;
+    const job = jobs[panel];
+    markReceiptsSeen([
+      ...(job?.status === "ok" ? [job.id] : []),
+      ...(list ?? []).flatMap((w) => (w.lastLaunch?.status === "ok" ? [w.lastLaunch.id] : [])),
+    ]);
+    if (job && job.status !== "running") dropJob(panel);
+    setPanel(null);
+    setCelebrate(null);
+  };
 
   // ---------------------------------------------------------------------------------------------
   // Row actions
 
-  const open = async (ticket: string) => {
-    try {
-      await post(`/api/worktrees/${ticket}/open`);
-    } catch (e) {
-      setRowError((err) => ({ ...err, [ticket]: (e as Error).message }));
-    }
-  };
+  const open = useCallback(
+    async (ticket: string) => {
+      try {
+        await post(`/api/worktrees/${ticket}/open`);
+      } catch (e) {
+        say((e as Error).message, "bad");
+      }
+    },
+    [say],
+  );
 
-  const showLogs = async (ticket: string, which: "frontend" | "backend") => {
-    setLogs({ ticket, which, text: "", loading: true });
-    try {
-      const r = await api<{ text: string }>(`/api/worktrees/${ticket}/logs?which=${which}`);
-      setLogs({ ticket, which, text: r.text, loading: false });
-    } catch (e) {
-      setLogs({ ticket, which, text: "", loading: false, error: (e as Error).message });
-    }
-  };
+  const reveal = useCallback(
+    async (ticket: string, app: RevealApp) => {
+      try {
+        await post(`/api/worktrees/${ticket}/reveal`, { app });
+        say(app === "t3" ? `Opening grubbs-${ticket} in T3 Code` : `Opened grubbs-${ticket}`, "ok");
+      } catch (e) {
+        say((e as Error).message, "bad");
+      }
+    },
+    [say],
+  );
+
+  const copy = useCallback(
+    async (text: string, label: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        say(`Copied ${label}${text.includes("\n") ? "" : `: ${text}`}`);
+      } catch {
+        say("The clipboard is not available here", "bad");
+      }
+    },
+    [say],
+  );
 
   const askRemove = async (ticket: string) => {
     setRemoveDlg({ ticket, stage: "confirm", deleteBranches: false, checking: true, typed: "" });
     try {
-      const fresh = await api<Worktree>(`/api/worktrees/${ticket}`);
+      const fresh = await api<WorktreeView>(`/api/worktrees/${ticket}`);
       setRemoveDlg((d) => (d && d.ticket === ticket ? { ...d, fresh, checking: false } : d));
     } catch (e) {
       setRemoveDlg((d) => (d && d.ticket === ticket ? { ...d, checking: false, error: (e as Error).message } : d));
@@ -288,347 +406,259 @@ export default function Worktrees() {
   const confirmRemove = (d: RemoveDialog) => {
     removeOptsRef.current[d.ticket] = d.deleteBranches;
     setRemoveDlg(null);
-    startAction(d.ticket, "remove", { force: d.stage === "force", deleteBranches: d.deleteBranches });
+    act(d.ticket, "remove", { force: d.stage === "force", deleteBranches: d.deleteBranches });
   };
 
-  const dismissJob = (ticket: string) =>
-    setJobs((prev) => {
-      const { [ticket]: _, ...rest } = prev;
-      return rest;
-    });
+  const jump = useCallback((ticket: string) => {
+    setPalette(false);
+    setExpanded(ticket);
+    setFlash(ticket);
+    setTimeout(() => setFlash((f) => (f === ticket ? null : f)), 1300);
+    requestAnimationFrame(() => document.getElementById(`wt-${ticket}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+  }, []);
+
+  const handlers = (w: WorktreeView): CardHandlers => ({
+    toggle: () => setExpanded((e) => (e === w.ticket ? null : w.ticket)),
+    act: (a) => (a === "launch" ? launch(w.ticket, DEFAULT_OPTS) : act(w.ticket, a)),
+    relaunch: () => launch(w.ticket, { ...optsFromArgs(w.lastLaunch?.args ?? []), start: true }),
+    open: () => open(w.ticket),
+    reveal: (app) => reveal(w.ticket, app),
+    copy,
+    receipt: () => setReceiptFor(w.ticket),
+    remove: () => askRemove(w.ticket),
+    logs: setLogsTab,
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // Keyboard: ⌘K launches or finds; 1–9 pick a worktree; o / l / t / c act on the open one.
+
+  const keyState = useRef({ list, expanded, modal: false });
+  keyState.current = { list, expanded, modal: palette || !!removeDlg || !!receiptFor };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette((p) => !p);
+        return;
+      }
+      const { list, expanded, modal } = keyState.current;
+      if (e.key === "Escape") {
+        setReceiptFor(null);
+        return;
+      }
+      const typing = (e.target as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable]");
+      if (typing || modal || e.metaKey || e.ctrlKey || e.altKey) return;
+      const w = list?.find((x) => x.ticket === expanded);
+      if (e.key === "/" || e.key === "n") {
+        e.preventDefault();
+        setPalette(true);
+      } else if (/^[1-9]$/.test(e.key) && list?.[+e.key - 1]) {
+        jump(list[+e.key - 1].ticket);
+      } else if (w && e.key === "o") open(w.ticket);
+      else if (w && e.key === "l") setLogsTab((t) => (t ? null : "frontend"));
+      else if (w && e.key === "t") reveal(w.ticket, "t3");
+      else if (w && e.key === "c" && w.feUrl) copy(w.feUrl, "app URL");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [jump, open, reveal, copy]);
 
   // ---------------------------------------------------------------------------------------------
   // Render
 
-  const launchJob = launchTicket ? jobs[launchTicket] : undefined;
-  const launchBusy = launchJob?.status === "running";
+  const live = list?.filter(isRunning).length ?? 0;
+  const bound =
+    list?.reduce((n, w) => n + (w.frontendUp ? 1 : 0) + (docker !== false && w.containersRunning > 0 ? 2 : 0), 0) ?? 0;
+  const busyTickets = new Set(Object.values(jobs).filter((j) => j.status === "running").map((j) => j.ticket));
+  const panelW = panel ? list?.find((w) => w.ticket === panel) : undefined;
+  const receiptW = receiptFor ? list?.find((w) => w.ticket === receiptFor) : undefined;
+  const receiptHandlers = (ticket: string) => ({
+    open: () => open(ticket),
+    reveal: (app: RevealApp) => reveal(ticket, app),
+    copy,
+  });
 
   return (
     <main>
-      <header>
-        <h1>
-          Grubbs Worktrees
-          {list && <span className="count">{list.filter(isRunning).length} running</span>}
-        </h1>
-        <div className="header-right">
-          {checkedAt && <span className="muted small">checked {new Date(checkedAt).toLocaleTimeString()}</span>}
-          <button onClick={() => refresh(true)} disabled={refreshing}>
-            {refreshing ? <span className="spinner" /> : "↻"} Refresh
-          </button>
+      <header className="top">
+        <div className="brand">
+          <I.Logo />
+          worktrees <small>grubbs</small>
         </div>
+        {list && (
+          <>
+            <span className="pill" title="Worktrees with anything running">
+              {live ? <span className="live" style={{ color: "var(--app)" }} /> : <span className="off" />}
+              <b>{live}</b> live
+            </span>
+            <span className="pill mono bound" title="Ports with a frontend, API or Postgres behind them">
+              <b>{bound}</b> ports bound
+            </span>
+          </>
+        )}
+        <span
+          className={`pill docker ${docker === false ? "down" : docker ? "up" : ""}`}
+          title={docker === false ? "Docker is not running" : "Docker is running"}
+        >
+          <I.Whale /> docker
+        </span>
+        <button
+          className="iconbtn"
+          onClick={() => refresh(true)}
+          disabled={refreshing}
+          title={checkedAt ? `Checked ${new Date(checkedAt).toLocaleTimeString()}. Refresh, with git` : "Refresh"}
+          aria-label="Refresh"
+        >
+          {refreshing ? <span className="spin" /> : <I.Refresh />}
+        </button>
+        <button className="launch-btn" onClick={() => setPalette(true)}>
+          <I.Plus size={14} /> Launch ticket <kbd>⌘K</kbd>
+        </button>
       </header>
 
       {docker === false && (
         <div className="banner">
-          <strong>Docker is not running.</strong> Backend status is unknown and backend actions are disabled
-          until Docker Desktop is started.
+          <I.Whale size={16} />
+          <span>
+            <b>Docker is not running.</b> Backends are unknown, and backend actions are off until it is up.
+          </span>
+          <button
+            className="btn"
+            disabled={dockerStarting}
+            onClick={() => {
+              setDockerStarting(true);
+              post("/api/docker").catch((e) => {
+                setDockerStarting(false);
+                say((e as Error).message, "bad");
+              });
+            }}
+          >
+            {dockerStarting ? (
+              <>
+                <span className="spin" /> starting…
+              </>
+            ) : (
+              "Start Docker"
+            )}
+          </button>
         </div>
       )}
       {listError && <div className="banner error">Could not list worktrees: {listError}</div>}
-      {notice && (
-        <div className="banner ok" onClick={() => setNotice(null)}>
-          {notice}
-        </div>
+
+      {panel && (
+        <LaunchPanel
+          ticket={panel}
+          job={jobs[panel]?.action === "launch" ? jobs[panel] : undefined}
+          w={panelW}
+          caps={caps}
+          celebrate={celebrate === panel}
+          h={receiptHandlers(panel)}
+          onClose={closePanel}
+          onRetry={() => {
+            const j = jobs[panel];
+            launch(panel, j ? optsFromArgs(j.args) : DEFAULT_OPTS);
+          }}
+        />
       )}
 
       {list === null && !listError && (
-        <p className="muted center">
-          <span className="spinner" /> Loading…
-        </p>
+        <div className="loading">
+          <span className="spin" /> Reading worktrees…
+        </div>
       )}
+
       {list?.length === 0 && (
-        <p className="empty">
-          No worktrees — run <code>launch-worktree &lt;ticket&gt;</code>
-        </p>
+        <div className="empty">
+          <svg width="120" height="110" viewBox="0 0 120 110" aria-hidden="true">
+            <ellipse cx="60" cy="100" rx="40" ry="5" fill="#121b24" />
+            <path className="sprout" d="M60 100V58" stroke="#5b6b7d" strokeWidth="5" strokeLinecap="round" fill="none" />
+            <ellipse className="sprout-leaf l" cx="46" cy="60" rx="14" ry="7" fill="#2f6b3d" transform="rotate(-30 46 60)" />
+            <ellipse className="sprout-leaf r" cx="74" cy="52" rx="14" ry="7" fill="#3e8a4f" transform="rotate(30 74 52)" />
+            <circle cx="60" cy="40" r="7" fill="var(--app)" className="bud" />
+          </svg>
+          <p>No worktrees yet.</p>
+          <button className="launch-btn" onClick={() => setPalette(true)}>
+            <I.Plus size={14} /> Launch your first ticket <kbd>⌘K</kbd>
+          </button>
+        </div>
       )}
 
-      <ul className="rows">
-        {list?.map((w) => {
-          const job = jobs[w.ticket];
-          const busy = job?.status === "running";
-          const be = backendState(w, docker);
-          const dirtyRepos = dirty[w.ticket] ?? [];
-          const err = rowError[w.ticket];
-          return (
-            <li key={w.ticket} className={busy ? "row busy" : "row"}>
-              <div className="row-top">
-                <span className="ticket">#{w.ticket}</span>
-                <span className="branch">{w.branch}</span>
-                {dirtyRepos.length > 0 && (
-                  <span className="badge dirty" title={`Uncommitted changes in ${dirtyRepos.join(", ")}`}>
-                    uncommitted: {dirtyRepos.join(", ")}
-                  </span>
-                )}
-                {busy && (
-                  <span className="busy-label">
-                    <span className="spinner" /> {ACTION_LABEL[job.action]}…
-                  </span>
-                )}
-              </div>
-              {w.feUrl && (
-                <a
-                  className="url"
-                  href={w.feUrl}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    open(w.ticket);
-                  }}
-                >
-                  {w.feUrl}
-                </a>
-              )}
-              <div className="status">
-                <span className={`dot ${w.frontendUp ? "ok" : "off"}`} />
-                Frontend <span className="muted">:{w.fePort}</span> {w.frontendUp ? "up" : "down"}
-                <span className={`dot ${be.tone}`} />
-                Backend <span className="muted">:{w.webPort}</span> {be.label}
-                {docker !== false && <span className="muted"> · {w.containersRunning}/3 containers</span>}
-              </div>
-              <div className="actions">
-                <button onClick={() => open(w.ticket)} disabled={busy || !w.feUrl}>
-                  Open
-                </button>
-                <button onClick={() => startAction(w.ticket, "restart-frontend")} disabled={busy}>
-                  Restart frontend
-                </button>
-                <button
-                  onClick={() => startAction(w.ticket, "restart-backend")}
-                  disabled={busy || docker === false}
-                  title={docker === false ? "Docker is not running" : undefined}
-                >
-                  Restart backend
-                </button>
-                <button onClick={() => showLogs(w.ticket, "frontend")} disabled={busy}>
-                  Frontend log
-                </button>
-                <button
-                  onClick={() => showLogs(w.ticket, "backend")}
-                  disabled={busy || docker === false}
-                  title={docker === false ? "Docker is not running" : undefined}
-                >
-                  Backend log
-                </button>
-                <button
-                  className="danger"
-                  onClick={() => askRemove(w.ticket)}
-                  disabled={busy || docker === false}
-                  title={docker === false ? "Start Docker first, so the containers and the database volume go too" : undefined}
-                >
-                  Remove
-                </button>
-              </div>
-              {err && <pre className="row-error">{err}</pre>}
-              {job && job.action !== "launch" && (job.action === "remove" || job.status === "running") && (
-                <div className="output">
-                  <pre ref={scrollToEnd}>{job.text || "…"}</pre>
-                  {!busy && (
-                    <button className="link" onClick={() => dismissJob(w.ticket)}>
-                      hide output
-                    </button>
-                  )}
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-
-      <section className="launch">
-        <h2>New worktree</h2>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const t = launchInput.trim().replace(/^#/, "");
-            if (!/^\d+$/.test(t)) {
-              setRowError((err) => ({ ...err, launch: "Ticket must be a number" }));
-              return;
-            }
-            setRowError(({ launch: _, ...rest }) => rest);
-            setLaunchTicket(t);
-            startAction(t, "launch");
-          }}
-        >
-          <input
-            value={launchInput}
-            onChange={(e) => setLaunchInput(e.target.value)}
-            placeholder="ticket, e.g. 2140"
-            inputMode="numeric"
-            disabled={launchBusy}
-          />
-          <button type="submit" disabled={launchBusy || !launchInput.trim()}>
-            {launchBusy ? <span className="spinner" /> : null} launch-worktree
-          </button>
-        </form>
-        <p className="muted small">
-          Creates the worktrees and starts both stacks. The first launch after a migration change rebuilds the
-          database snapshot and can take many minutes.
-        </p>
-        {(rowError.launch || (launchTicket && rowError[launchTicket] && !list?.some((w) => w.ticket === launchTicket))) && (
-          <pre className="row-error">{rowError.launch || rowError[launchTicket!]}</pre>
-        )}
-        {launchJob && launchJob.action === "launch" && (
-          <div className="output tall">
-            <div className="output-head">
-              <span>
-                {launchBusy && <span className="spinner" />} launch-worktree {launchJob.ticket}
-                {launchJob.status === "ok" && " — done"}
-                {launchJob.status === "failed" && ` — failed (exit ${launchJob.exitCode})`}
-                {launchJob.status === "lost" && " — stopped without an exit code"}
-              </span>
-              {!launchBusy && (
-                <button
-                  className="link"
-                  onClick={() => {
-                    dismissJob(launchJob.ticket);
-                    setLaunchTicket(null);
-                  }}
-                >
-                  hide
-                </button>
-              )}
-            </div>
-            <pre ref={scrollToEnd}>{launchJob.text || "…"}</pre>
+      <div className="list">
+        {list?.map((w, i) => (
+          <div key={w.ticket} id={`wt-${w.ticket}`} className={flash === w.ticket ? "flash" : undefined}>
+            <Card
+              w={w}
+              index={i}
+              docker={docker}
+              job={jobs[w.ticket]}
+              expanded={expanded === w.ticket}
+              dirtyRepos={dirty[w.ticket] ?? []}
+              gitCheckedAt={gitCheckedAt}
+              error={rowError[w.ticket]}
+              caps={caps}
+              logsTab={logsTab}
+              h={handlers(w)}
+            />
           </div>
-        )}
-      </section>
+        ))}
+      </div>
 
-      {logs && (
-        <div className="modal-bg" onClick={() => setLogs(null)}>
-          <div className="modal wide" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>
-                #{logs.ticket} {logs.which} log <span className="muted small">last 200 lines</span>
-              </h3>
-              <div>
-                <button onClick={() => showLogs(logs.ticket, logs.which)} disabled={logs.loading}>
-                  ↻
-                </button>
-                <button onClick={() => setLogs(null)}>Close</button>
-              </div>
-            </div>
-            {logs.loading && (
-              <p className="muted">
-                <span className="spinner" /> Loading…
-              </p>
-            )}
-            {logs.error && <pre className="row-error">{logs.error}</pre>}
-            {!logs.loading && !logs.error && (
-              <pre className="log" ref={scrollToEnd}>
-                {logs.text || "(empty)"}
-              </pre>
-            )}
+      {list && list.length > 0 && (
+        <footer className="foot mono">
+          <span>
+            <kbd>⌘K</kbd> launch / find
+          </span>
+          <span>
+            <kbd>1</kbd>–<kbd>9</kbd> pick
+          </span>
+          <span>
+            <kbd>o</kbd> open app
+          </span>
+          <span>
+            <kbd>c</kbd> copy URL
+          </span>
+          <span>
+            <kbd>l</kbd> logs
+          </span>
+          {caps?.t3 && (
+            <span>
+              <kbd>t</kbd> T3 Code
+            </span>
+          )}
+        </footer>
+      )}
+
+      {palette && list && (
+        <Launcher
+          worktrees={list}
+          docker={docker}
+          busy={busyTickets}
+          onClose={() => setPalette(false)}
+          onLaunch={launch}
+          onJump={jump}
+        />
+      )}
+
+      {receiptW && (
+        <div className="modal-bg" onMouseDown={() => setReceiptFor(null)}>
+          <div className="receipt-modal" onMouseDown={(e) => e.stopPropagation()}>
+            <button className="panel-x" onClick={() => setReceiptFor(null)}>
+              Close
+            </button>
+            <Receipt w={receiptW} launch={receiptW.lastLaunch} caps={caps} confetti={false} h={receiptHandlers(receiptW.ticket)} />
           </div>
         </div>
       )}
 
       {removeDlg && <RemoveModal d={removeDlg} set={setRemoveDlg} onConfirm={confirmRemove} />}
-    </main>
-  );
-}
 
-function RemoveModal({
-  d,
-  set,
-  onConfirm,
-}: {
-  d: RemoveDialog;
-  set: (f: (d: RemoveDialog | null) => RemoveDialog | null) => void;
-  onConfirm: (d: RemoveDialog) => void;
-}) {
-  const force = d.stage === "force";
-  const repos = d.fresh?.repos ?? [];
-  const dirtyRepos = repos.filter((r) => r.dirty).map((r) => r.name);
-  const branch = d.fresh?.branch ?? `mithilesh/${d.ticket}`;
-  const canConfirm = !d.checking && (!force || d.typed.trim() === d.ticket);
-  const close = () => set(() => null);
-
-  return (
-    <div className="modal-bg" onClick={close}>
-      <div className={`modal ${force ? "force" : ""}`} onClick={(e) => e.stopPropagation()}>
-        <h3>{force ? `Force remove #${d.ticket}?` : `Remove #${d.ticket}?`}</h3>
-
-        {force && (
-          <div className="warn-box">
-            <strong>remove-worktree refused:</strong> these repos have uncommitted changes. Force remove deletes
-            them for good.
-            {d.checking ? (
-              <p>
-                <span className="spinner" /> checking…
-              </p>
-            ) : (
-              <ul>
-                {(dirtyRepos.length ? dirtyRepos : ["(none found now — the check may have changed)"]).map((r) => (
-                  <li key={r}>
-                    <code>{r}</code>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        <p>This permanently destroys:</p>
-        <ul className="destroy">
-          <li>
-            the three git worktrees{" "}
-            {repos.length > 0 && <span className="muted">({repos.map((r) => r.name).join(", ")})</span>}
-          </li>
-          <li>
-            the backend containers of <code>grubbs-{d.ticket}</code> <strong>and its database volume</strong>{" "}
-            <span className="muted">(docker compose down -v)</span>
-          </li>
-          <li>
-            the folder <code>grubbs-{d.ticket}</code> (logs, ports, compose override)
-          </li>
-          <li>
-            the T3 Code project <code>grubbs-{d.ticket}</code> and all its chats
-          </li>
-        </ul>
-
-        {!force && d.checking && (
-          <p className="muted">
-            <span className="spinner" /> checking for uncommitted changes…
-          </p>
-        )}
-        {!force && !d.checking && dirtyRepos.length > 0 && (
-          <p className="warn-text">
-            Uncommitted changes in {dirtyRepos.join(", ")}. remove-worktree will refuse; you can then choose Force
-            remove.
-          </p>
-        )}
-        {d.error && <pre className="row-error">{d.error}</pre>}
-
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={d.deleteBranches}
-            onChange={(e) => set((x) => (x ? { ...x, deleteBranches: e.target.checked } : x))}
-          />
-          Also delete branch <code>{branch}</code>{" "}
-          <span className="muted">
-            {force ? "(even when not merged)" : "(only where merged; unmerged branches are kept)"}
-          </span>
-        </label>
-
-        {force && (
-          <label className="typed">
-            Type <code>{d.ticket}</code> to confirm
-            <input
-              autoFocus
-              value={d.typed}
-              onChange={(e) => set((x) => (x ? { ...x, typed: e.target.value } : x))}
-              inputMode="numeric"
-            />
-          </label>
-        )}
-
-        <div className="modal-actions">
-          <button onClick={close}>Cancel</button>
-          <button className={force ? "danger solid" : "danger"} disabled={!canConfirm} onClick={() => onConfirm(d)}>
-            {force ? "Force remove" : "Remove"}
-          </button>
+      {toast && (
+        <div key={toast.id} className={`toast ${toast.tone ?? ""}`} role="status">
+          {toast.tone === "bad" ? <I.Warn size={13} /> : <I.Check size={13} />}
+          <span>{toast.text}</span>
         </div>
-      </div>
-    </div>
+      )}
+    </main>
   );
 }

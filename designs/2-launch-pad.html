@@ -1,0 +1,344 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Design 2 — Launch Pad</title>
+<style>
+  :root { color-scheme: dark; }
+  .wrap { font-family: var(--font-sans, ui-sans-serif, -apple-system, system-ui, sans-serif); }
+  .intro h2 { margin: 0 0 4px; font-size: 18px; }
+  .intro p, .cap p { margin: 0 0 12px; color: var(--muted-foreground, #8b98a8); font-size: 13.5px; line-height: 1.5; }
+  .cap { display:flex; gap:10px; align-items:baseline; margin: 18px 0 8px; }
+  .cap b { font-size: 14px; }
+  .step-n { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:6px; background:#a3e635; color:#0a0e13; font-weight:800; font-size:11px; flex:none; }
+
+  .mock {
+    --ink:#090d12; --panel:#0f151c; --panel2:#131b24; --line:#1e2935; --line2:#273444;
+    --text:#e6edf3; --dim:#8d9aab; --faint:#566476;
+    --app:#a3e635; --api:#38d6f5; --db:#b794ff; --warn:#fbbf24; --bad:#fb7185;
+    background: radial-gradient(700px 300px at 50% -20%, rgba(163,230,53,.09), transparent 60%), var(--ink);
+    color: var(--text); border-radius: var(--radius, 14px); padding: 18px; position:relative; overflow:hidden;
+    font-family: ui-sans-serif, -apple-system, "Inter", system-ui, sans-serif; font-size: 13px; border:1px solid #18212b;
+  }
+  .mono { font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); }
+  kbd { font-family: ui-monospace, Menlo, monospace; font-size:10.5px; padding:1px 5px; border-radius:5px; border:1px solid var(--line2); background:#0b1117; color:var(--dim); }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  /* ---------- palette ---------- */
+  .ghost-bg { position:absolute; inset:0; padding:18px; opacity:.25; filter: blur(2px); pointer-events:none; }
+  .ghost-bg div { height:46px; border-radius:12px; background:#121a23; margin-bottom:8px; border:1px solid var(--line); }
+  .palette { position:relative; max-width:560px; margin: 8px auto; background: rgba(15,21,28,.96); border:1px solid var(--line2); border-radius:16px;
+    box-shadow: 0 30px 80px -20px rgba(0,0,0,.8), 0 0 0 1px rgba(163,230,53,.08); overflow:hidden; backdrop-filter: blur(10px); }
+  .pin { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--line); font-size:17px; }
+  .pin .pfx { color: var(--app); font-weight:700; }
+  .caret { display:inline-block; width:2px; height:20px; background: var(--app); vertical-align:middle; margin-left:-8px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0 } }
+  .pin .right { margin-left:auto; font-size:11px; }
+  .sect { padding:8px 8px 4px; }
+  .sect h6 { margin:6px 8px 6px; font-size:10.5px; letter-spacing:.12em; color: var(--faint); font-weight:700; }
+  .opt { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:10px; }
+  .opt.sel { background: linear-gradient(90deg, rgba(163,230,53,.14), rgba(163,230,53,.03)); box-shadow: inset 2px 0 0 var(--app); }
+  .opt .ic { width:28px; height:28px; border-radius:8px; display:grid; place-items:center; background:#0b1117; border:1px solid var(--line2); flex:none; }
+  .opt .t { flex:1; min-width:0; }
+  .opt .t b { font-weight:600; } .opt .t small { display:block; color: var(--dim); font-size:11.5px; margin-top:1px; }
+  .slot { display:flex; gap:5px; }
+  .pchip { display:inline-flex; align-items:center; gap:5px; padding:3px 7px; border-radius:6px; font-size:11.5px; border:1px dashed var(--line2); background:#0b1117; color:#dfe7ee; }
+  .pchip i { width:6px; height:6px; border-radius:50%; display:inline-block; }
+  .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:8px; padding: 0 10px 10px; }
+  .field { border:1px solid var(--line2); border-radius:10px; padding:8px 10px; background:#0b1117; }
+  .field label { display:block; font-size:10.5px; color: var(--faint); letter-spacing:.08em; font-weight:700; margin-bottom:3px; }
+  .field .v { display:flex; align-items:center; justify-content:space-between; font-size:12.5px; }
+  .toggles { display:flex; flex-wrap:wrap; gap:8px; padding: 0 10px 12px; }
+  .tog { display:inline-flex; align-items:center; gap:8px; font-size:12px; padding:6px 10px; border-radius:999px; border:1px solid var(--line2); background:#0b1117; }
+  .sw { width:26px; height:15px; border-radius:999px; background:#27323f; position:relative; flex:none; }
+  .sw::after { content:""; position:absolute; top:2px; left:2px; width:11px; height:11px; border-radius:50%; background:#8d9aab; transition: .2s; }
+  .sw.on { background: rgba(163,230,53,.5); } .sw.on::after { left:13px; background: #eaffc4; }
+  .pfoot { display:flex; align-items:center; gap:12px; padding:10px 14px; border-top:1px solid var(--line); background:#0b1016; font-size:11.5px; color: var(--dim); }
+  .pfoot .go { margin-left:auto; display:inline-flex; align-items:center; gap:8px; padding:7px 14px; border-radius:10px; border:0; background: var(--app); color:#0a0e13; font-weight:700; font-size:12.5px; }
+  .eta { display:inline-flex; align-items:center; gap:6px; }
+
+  /* ---------- launch progress ---------- */
+  .launch { display:grid; grid-template-columns: 220px 1fr; gap:18px; align-items:stretch; }
+  @media (max-width: 560px) { .launch { grid-template-columns: 1fr; } .grid2 { grid-template-columns: 1fr; } }
+  .stage { border-radius:14px; background: radial-gradient(160px 120px at 50% 85%, rgba(163,230,53,.12), transparent 70%), #0b1016; border:1px solid var(--line); position:relative; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; padding:12px 10px 10px; }
+  .stage .clock { position:absolute; top:10px; left:12px; font-size:11px; color: var(--dim); }
+  .stage .tkt { position:absolute; top:8px; right:12px; font-weight:800; font-size:15px; letter-spacing:-.02em; }
+  svg.tree .grow { stroke-dasharray: var(--len); stroke-dashoffset: var(--len); transition: stroke-dashoffset 1s cubic-bezier(.4,0,.2,1); }
+  svg.tree .grow.on { stroke-dashoffset: 0; }
+  svg.tree .leaf { transform-box: fill-box; transform-origin: center; transform: scale(0); transition: transform .5s cubic-bezier(.34,1.56,.64,1); }
+  svg.tree .leaf.on { transform: scale(1); }
+  svg.tree .fruit { transform-box: fill-box; transform-origin:center; transform: scale(0); transition: transform .6s cubic-bezier(.34,1.56,.64,1); }
+  svg.tree .fruit.on { transform: scale(1); }
+  svg.tree .fruit.on .halo { animation: halo 2s ease-out infinite; transform-box: fill-box; transform-origin:center; }
+  @keyframes halo { 0% { transform: scale(1); opacity:.6 } 100% { transform: scale(2.6); opacity:0 } }
+  .flabels { display:flex; gap:6px; margin-top:8px; }
+  .flabels span { font-size:11px; padding:2px 7px; border-radius:6px; border:1px solid var(--line2); color: var(--faint); transition: .3s; }
+  .flabels span.on { color:#fff; }
+  .flabels span.db.on { border-color: var(--db); background: rgba(183,148,255,.14); }
+  .flabels span.api.on { border-color: var(--api); background: rgba(56,214,245,.14); }
+  .flabels span.app.on { border-color: var(--app); background: rgba(163,230,53,.14); }
+
+  .steps { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+  .steps li { display:grid; grid-template-columns: 22px 1fr auto; gap:10px; align-items:center; padding:6px 8px; border-radius:9px; color: var(--faint); transition: background .3s, color .3s; }
+  .steps li .b { width:18px; height:18px; border-radius:50%; border:1.5px solid #2b3846; display:grid; place-items:center; font-size:10px; }
+  .steps li .d { font-size:11px; }
+  .steps li.done { color: var(--dim); }
+  .steps li.done .b { background: var(--app); border-color: var(--app); color:#0a0e13; }
+  .steps li.done .b::before { content:"✓"; font-weight:900; }
+  .steps li.warn .b { background: var(--warn); border-color: var(--warn); color:#0a0e13; }
+  .steps li.warn .b::before { content:"!"; font-weight:900; }
+  .steps li.warn { color: #fde7a6; }
+  .steps li.active { background: linear-gradient(90deg, rgba(56,214,245,.12), transparent); color: var(--text); }
+  .steps li.active .b { border-color: rgba(56,214,245,.3); border-top-color: var(--api); animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg) } }
+  .steps li .sub { grid-column: 2 / 4; font-size:11.5px; color: var(--api); margin-top:-2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:none; }
+  .steps li.active .sub { display:block; }
+  .bar { height:4px; border-radius:999px; background:#1a2330; overflow:hidden; margin: 12px 0 8px; }
+  .bar i { display:block; height:100%; width:0; background: linear-gradient(90deg, var(--db), var(--api), var(--app)); transition: width .8s; border-radius:inherit; }
+  .reassure { display:flex; align-items:center; gap:8px; font-size:11.5px; color: var(--dim); }
+  .reassure .lk { margin-left:auto; color: var(--api); white-space:nowrap; }
+
+  /* ---------- receipt ---------- */
+  .stub { position:relative; display:grid; grid-template-columns: 120px 1fr; max-width:600px; margin: 6px auto 4px; border-radius:16px; overflow:hidden;
+     filter: drop-shadow(0 20px 40px rgba(0,0,0,.5)); }
+  .stub .l, .stub .r { background: linear-gradient(180deg, #17222d, #111922); }
+  .stub .l { border-right: 2px dashed #2a3847; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:16px 8px;
+     -webkit-mask: radial-gradient(circle 10px at 100% 0, transparent 9.5px, #000 10px) top / 100% 51% no-repeat, radial-gradient(circle 10px at 100% 100%, transparent 9.5px, #000 10px) bottom / 100% 51% no-repeat; }
+  .stub .r { padding:16px 18px;
+     -webkit-mask: radial-gradient(circle 10px at 0 0, transparent 9.5px, #000 10px) top / 100% 51% no-repeat, radial-gradient(circle 10px at 0 100%, transparent 9.5px, #000 10px) bottom / 100% 51% no-repeat; }
+  .admit { writing-mode: vertical-rl; transform: rotate(180deg); font-size:10px; letter-spacing:.3em; color: var(--faint); font-weight:700; }
+  .big { font-size:30px; font-weight:900; letter-spacing:-.03em; }
+  .big span { color: var(--faint); }
+  .live { position:relative; width:8px; height:8px; border-radius:50%; background:currentColor; display:inline-block; flex:none; }
+  .live::after { content:""; position:absolute; inset:0; border-radius:50%; background:currentColor; animation: ping 2s cubic-bezier(0,0,.2,1) infinite; }
+  @keyframes ping { 0% { transform:scale(1); opacity:.55 } 80%,100% { transform:scale(2.8); opacity:0 } }
+  .rhead { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .rhead b { font-size:15px; }
+  .rhead .t { margin-left:auto; font-size:11px; color: var(--dim); }
+  .prow { display:grid; grid-template-columns: 44px 70px 1fr auto; align-items:center; gap:10px; padding:7px 0; border-top:1px solid #1d2833; }
+  .prow .k { font-size:10.5px; font-weight:800; letter-spacing:.12em; }
+  .prow .p { font-size:20px; font-weight:700; letter-spacing:-.02em; }
+  .prow .h { font-size:11.5px; color: var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cp { font-size:11px; padding:3px 8px; border-radius:7px; border:1px solid var(--line2); background:#0b1117; white-space:nowrap; }
+  .ractions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .rb { display:inline-flex; align-items:center; gap:6px; padding:7px 12px; border-radius:10px; border:1px solid var(--line2); background: var(--panel2); font-size:12px; }
+  .rb.go { background: var(--app); color:#0a0e13; border:0; font-weight:700; }
+  .rb.t3 { border-color: rgba(183,148,255,.45); background: rgba(183,148,255,.12); }
+  .confetti { position:absolute; inset:0; pointer-events:none; overflow:hidden; z-index:2; }
+  .confetti i { position:absolute; top:-12px; width:7px; height:11px; border-radius:2px; opacity:0; animation: fall var(--d) cubic-bezier(.2,.6,.4,1) var(--delay) forwards; }
+  @keyframes fall { 0% { opacity:1; transform: translate(0,0) rotate(0) } 100% { opacity:0; transform: translate(var(--x), 330px) rotate(var(--r)) } }
+  .pinned { display:flex; align-items:center; justify-content:center; gap:8px; font-size:11.5px; color: var(--dim); margin-top:10px; }
+  .replay { position:absolute; top:10px; right:12px; font-size:11px; padding:3px 9px; border-radius:999px; border:1px solid var(--line2); background:#0b1117; color: var(--dim); z-index:2; }
+
+  .notes { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:10px 18px; margin-top:14px; font-size:13px; line-height:1.5; }
+  .notes div b { display:block; } .notes div p { margin:2px 0 0; color: var(--muted-foreground, #8b98a8); }
+
+  @media (prefers-reduced-motion: reduce) { *, *::after, *::before { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="intro">
+    <h2>2 · Launch Pad: ⌘K → watch it grow → keep the receipt</h2>
+    <p>Launching should never need a terminal. Press ⌘K from anywhere in the app, type a ticket number, and get every flag the script supports, plus the ports you'll get, before you press Enter.</p>
+  </div>
+
+  <!-- ===================== A. palette ===================== -->
+  <div class="cap"><span class="step-n">A</span><div><b>Type a ticket. See its ports before it exists.</b></div></div>
+  <div class="mock" style="padding:26px 18px">
+    <div class="ghost-bg"><div></div><div></div><div></div><div></div></div>
+    <div class="palette">
+      <div class="pin mono">
+        <span class="pfx">#</span><span class="typed" id="typed">2140</span><span class="caret"></span>
+        <span class="right faint">ticket, branch or port</span>
+      </div>
+      <div class="sect">
+        <h6>LAUNCH</h6>
+        <div class="opt sel">
+          <span class="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a3e635" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+          <span class="t"><b>Launch #2140</b> <span class="dim mono">mithilesh/2140</span><small>new worktree from origin/dev · snapshot current · ~45s</small></span>
+          <span class="slot mono">
+            <span class="pchip"><i style="background:var(--app)"></i>:3025</span>
+            <span class="pchip"><i style="background:var(--api)"></i>:8005</span>
+            <span class="pchip"><i style="background:var(--db)"></i>:5437</span>
+          </span>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>CRM-BACKEND BASE</label><div class="v mono">origin/dev <span class="faint">▾</span></div></div>
+        <div class="field"><label>CRM-FRONTEND BASE</label><div class="v mono">origin/dev <span class="faint">▾</span></div></div>
+      </div>
+      <div class="toggles">
+        <span class="tog"><span class="sw on"></span>Start stacks</span>
+        <span class="tog"><span class="sw"></span>Refresh DB snapshot</span>
+        <span class="tog"><span class="sw on"></span>Open app when up</span>
+        <span class="tog"><span class="sw on"></span>Open in T3 Code</span>
+      </div>
+      <div class="sect" style="border-top:1px solid var(--line)">
+        <h6>JUMP TO</h6>
+        <div class="opt"><span class="ic mono" style="font-size:11px">#</span><span class="t"><b>#2130</b> <span class="dim mono">· :3023 · :8003 · :5435</span></span><kbd>↵</kbd></div>
+      </div>
+      <div class="pfoot">
+        <span class="eta"><kbd>↑↓</kbd> move</span><span class="eta"><kbd>⇥</kbd> options</span>
+        <span class="mono faint">= launch-worktree 2140</span>
+        <button class="go">Launch <kbd style="background:rgba(0,0,0,.15);border-color:rgba(0,0,0,.2);color:#0a0e13">↵</kbd></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== B. progress ===================== -->
+  <div class="cap"><span class="step-n">B</span><div><b>The launch is a tree that grows, not a wall of text</b></div></div>
+  <div class="mock">
+    <div class="launch">
+      <div class="stage">
+        <span class="clock mono" id="clock">0:00</span>
+        <span class="tkt mono"><span class="faint">#</span>2140</span>
+        <svg class="tree" id="tree" width="190" height="200" viewBox="0 0 190 200" aria-label="launch progress">
+          <ellipse cx="95" cy="192" rx="60" ry="6" fill="#121b24"/>
+          <!-- trunk -->
+          <path class="grow" data-s="0" style="--len:130" d="M95 192 C95 160 95 120 95 64" stroke="#5b6b7d" stroke-width="7" stroke-linecap="round" fill="none"/>
+          <!-- three branches = three repos -->
+          <path class="grow" data-s="1" style="--len:80" d="M95 140 C80 130 60 126 44 108" stroke="#5b6b7d" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+          <path class="grow" data-s="1" style="--len:80" d="M95 118 C112 108 130 104 148 86" stroke="#5b6b7d" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+          <path class="grow" data-s="1" style="--len:50" d="M95 90 C88 80 84 70 78 52" stroke="#5b6b7d" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+          <!-- leaves: env, claude, t3 -->
+          <g class="leaf" data-s="2"><ellipse cx="40" cy="100" rx="13" ry="8" fill="#2f6b3d" transform="rotate(-30 40 100)"/><ellipse cx="56" cy="112" rx="10" ry="6" fill="#3e8a4f" transform="rotate(20 56 112)"/></g>
+          <g class="leaf" data-s="3"><ellipse cx="152" cy="80" rx="13" ry="8" fill="#2f6b3d" transform="rotate(30 152 80)"/><ellipse cx="134" cy="98" rx="10" ry="6" fill="#3e8a4f" transform="rotate(-20 134 98)"/></g>
+          <g class="leaf" data-s="4"><ellipse cx="76" cy="46" rx="11" ry="7" fill="#3e8a4f" transform="rotate(-60 76 46)"/><ellipse cx="96" cy="60" rx="14" ry="9" fill="#2f6b3d"/></g>
+          <!-- fruits = services -->
+          <g class="fruit" data-s="6"><circle class="halo" cx="58" cy="128" r="7" fill="#b794ff"/><circle cx="58" cy="128" r="7" fill="#b794ff"/></g>
+          <g class="fruit" data-s="7"><circle class="halo" cx="132" cy="112" r="7" fill="#38d6f5"/><circle cx="132" cy="112" r="7" fill="#38d6f5"/></g>
+          <g class="fruit" data-s="8"><circle class="halo" cx="95" cy="40" r="9" fill="#a3e635"/><circle cx="95" cy="40" r="9" fill="#a3e635"/></g>
+        </svg>
+        <div class="flabels mono">
+          <span class="db" id="fdb">db :5437</span><span class="api" id="fapi">api :8005</span><span class="app" id="fapp">app :3025</span>
+        </div>
+      </div>
+      <div>
+        <ul class="steps" id="steps">
+          <li><span class="b"></span><span>Reserve ports</span><span class="d mono">slot 5</span><span class="sub mono">ports: frontend 3025, backend 8005, postgres 5437</span></li>
+          <li><span class="b"></span><span>Create 3 worktrees</span><span class="d mono">mithilesh/2140</span><span class="sub mono">crm-backend: new branch from origin/dev</span></li>
+          <li><span class="b"></span><span>Copy env files</span><span class="d mono">.env .envs/</span><span class="sub mono">URLs now point at :3025 and :8005</span></li>
+          <li><span class="b"></span><span>Link Claude setup</span><span class="d mono">CLAUDE.md</span><span class="sub mono">own workspace.json and launch.json</span></li>
+          <li><span class="b"></span><span>Add T3 Code project</span><span class="d mono">grubbs-2140</span><span class="sub mono">POST /projects …</span></li>
+          <li><span class="b"></span><span>Database snapshot</span><span class="d mono">dev-e438bcc9</span><span class="sub mono">snapshot current · no rebuild needed</span></li>
+          <li><span class="b"></span><span>Postgres + restore</span><span class="d mono">267 tables</span><span class="sub mono">pg_restore dev-e438bcc98189.dump …</span></li>
+          <li><span class="b"></span><span>API: migrations + uvicorn</span><span class="d mono">:8005</span><span class="sub mono">waiting for http://localhost:8005 (try 7/150)</span></li>
+          <li><span class="b"></span><span>Frontend: next dev</span><span class="d mono">:3025</span><span class="sub mono">pnpm install · ✓ Ready in 912ms</span></li>
+        </ul>
+        <div class="bar"><i id="bar"></i></div>
+        <div class="reassure">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Close the window if you like. It keeps running, and the receipt waits for you.
+          <span class="lk mono">raw log ▸</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== C. receipt ===================== -->
+  <div class="cap"><span class="step-n">C</span><div><b>The receipt: the "it's up" block stays on the card</b></div></div>
+  <div class="mock" id="rc" style="padding:24px 18px 16px">
+    <button class="replay" id="replay">↻ replay</button>
+    <div class="confetti" id="confetti"></div>
+    <div class="stub">
+      <div class="l">
+        <span class="admit mono">WORKTREE PASS</span>
+        <div class="big mono"><span>#</span>2140</div>
+        <svg width="70" height="26" viewBox="0 0 70 26" aria-hidden="true">
+          <g fill="#3b4a5c"><rect x="0" y="0" width="2" height="26"/><rect x="4" y="0" width="1" height="26"/><rect x="7" y="0" width="3" height="26"/><rect x="12" y="0" width="1" height="26"/><rect x="15" y="0" width="2" height="26"/><rect x="19" y="0" width="4" height="26"/><rect x="25" y="0" width="1" height="26"/><rect x="28" y="0" width="2" height="26"/><rect x="33" y="0" width="1" height="26"/><rect x="36" y="0" width="3" height="26"/><rect x="41" y="0" width="1" height="26"/><rect x="44" y="0" width="2" height="26"/><rect x="48" y="0" width="4" height="26"/><rect x="54" y="0" width="1" height="26"/><rect x="57" y="0" width="2" height="26"/><rect x="61" y="0" width="1" height="26"/><rect x="64" y="0" width="3" height="26"/><rect x="68" y="0" width="2" height="26"/></g>
+        </svg>
+      </div>
+      <div class="r">
+        <div class="rhead"><span class="live" style="color:var(--app)"></span><b>grubbs-2140 is up</b><span class="t mono">launched 15:21 · 43s</span></div>
+        <div class="prow"><span class="k" style="color:var(--app)">APP</span><span class="p mono">:3025</span><span class="h mono">grubbs-2140.localhost</span><button class="cp mono">⧉ copy</button></div>
+        <div class="prow"><span class="k" style="color:var(--api)">API</span><span class="p mono">:8005</span><span class="h mono">localhost</span><button class="cp mono">⧉ copy</button></div>
+        <div class="prow"><span class="k" style="color:var(--db)">DB</span><span class="p mono">:5437</span><span class="h mono">admin/admin · grubbs_db</span><button class="cp mono">⧉ psql</button></div>
+        <div class="prow"><span class="k dim">LOGIN</span><span class="p mono" style="font-size:13px">🔑</span><span class="h">local-credentials.md</span><button class="cp mono">view</button></div>
+        <div class="ractions">
+          <button class="rb go">Open app ↗</button>
+          <button class="rb t3">Open in T3 Code</button>
+          <button class="rb">Terminal here</button>
+          <button class="rb mono">⧉ .env block</button>
+        </div>
+      </div>
+    </div>
+    <div class="pinned">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 17v5M5 9l7-7 7 7-3 3v5H8v-5z"/></svg>
+      Saved with the worktree. Any card → ⋯ → Receipt. Survives hide, reload and restart.
+    </div>
+  </div>
+
+  <div class="notes">
+    <div><b>Ports before launch</b><p><span class="mono">pick_ports</span> is deterministic: slot n gives 302n / 800n / 543n. The palette can show them before Enter. Needs a <span class="mono">launch --dry-run</span> (or the app can compute it from the existing <span class="mono">.worktree.env</span> files).</p></div>
+    <div><b>Stages come from the script's own markers</b><p>Every <span class="mono">==&gt;</span> line from <span class="mono">say()</span> is a stage. Parsing them gives the stepper with no script changes. A traceback inside a stage turns it amber (⚠), not "done".</p></div>
+    <div><b>Every flag gets a control</b><p><span class="mono">--backend-base</span>, <span class="mono">--frontend-base</span>, <span class="mono">--no-start</span> and <span class="mono">--refresh-snapshot</span> exist today, but only from a terminal.</p></div>
+    <div><b>Receipt = persisted job summary</b><p>Today <span class="mono">/api/worktrees</span> returns only running jobs, so after it finishes the summary is gone. Saving the last launch per ticket fixes "I lose the ports".</p></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ---- launch progress loop ----
+  const steps = [...document.querySelectorAll('#steps li')];
+  const parts = [...document.querySelectorAll('#tree [data-s]')];
+  const bar = document.getElementById('bar');
+  const clock = document.getElementById('clock');
+  const labels = { 6: 'fdb', 7: 'fapi', 8: 'fapp' };
+  const dur = [700, 1100, 600, 600, 900, 700, 1500, 1800, 1500];
+  let i = 0, t0 = performance.now(), timer;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function paint(n) {
+    steps.forEach((li, k) => {
+      li.className = k < n ? (k === 4 ? 'done' : 'done') : k === n ? 'active' : '';
+    });
+    parts.forEach(p => p.classList.toggle('on', +p.dataset.s < n || (+p.dataset.s === n && n === 0)));
+    for (const [s, id] of Object.entries(labels)) document.getElementById(id).classList.toggle('on', +s < n);
+    bar.style.width = (n / steps.length * 100) + '%';
+  }
+  function tick() {
+    paint(i);
+    if (i >= steps.length) { timer = setTimeout(() => { i = 0; t0 = performance.now(); tick(); }, 3500); return; }
+    timer = setTimeout(() => { i++; tick(); }, dur[i]);
+  }
+  setInterval(() => {
+    if (i >= steps.length) return;
+    const s = Math.floor((performance.now() - t0) / 1000) * 4; // sped up ×4 for the demo
+    clock.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }, 250);
+  if (reduce) paint(7); else tick();
+
+  // ---- palette typing ----
+  const typed = document.getElementById('typed');
+  if (!reduce) {
+    let n = 0;
+    setInterval(() => { n = (n + 1) % 14; typed.textContent = '2140'.slice(0, Math.min(n, 4)); }, 380);
+  }
+
+  // ---- confetti ----
+  const box = document.getElementById('confetti');
+  const colors = ['#a3e635', '#38d6f5', '#b794ff', '#fbbf24', '#ff5fa2', '#e6edf3'];
+  function burst() {
+    if (reduce) return;
+    box.innerHTML = '';
+    for (let k = 0; k < 70; k++) {
+      const c = document.createElement('i');
+      c.style.left = (5 + Math.random() * 90) + '%';
+      c.style.background = colors[k % colors.length];
+      c.style.setProperty('--x', (Math.random() * 160 - 80) + 'px');
+      c.style.setProperty('--r', (Math.random() * 900 - 450) + 'deg');
+      c.style.setProperty('--d', (1.6 + Math.random() * 1.6) + 's');
+      c.style.setProperty('--delay', (Math.random() * .5) + 's');
+      if (k % 3 === 0) { c.style.width = '6px'; c.style.height = '6px'; c.style.borderRadius = '50%'; }
+      box.appendChild(c);
+    }
+  }
+  document.getElementById('replay').addEventListener('click', burst);
+  burst();
+  setInterval(burst, 9000);
+})();
+</script>
+</body>
+</html>

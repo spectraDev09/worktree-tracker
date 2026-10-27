@@ -1,0 +1,237 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Design 3 — Port Switchboard</title>
+<style>
+  :root { color-scheme: dark; }
+  .wrap { font-family: var(--font-sans, ui-sans-serif, -apple-system, system-ui, sans-serif); }
+  .intro h2 { margin: 0 0 4px; font-size: 18px; }
+  .intro p { margin: 0 0 14px; color: var(--muted-foreground, #8b98a8); font-size: 13.5px; line-height: 1.5; }
+  .cap { display:flex; gap:10px; align-items:baseline; margin: 18px 0 8px; }
+  .cap b { font-size: 14px; }
+  .step-n { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:6px; background:#38d6f5; color:#0a0e13; font-weight:800; font-size:11px; flex:none; }
+
+  .mock {
+    --ink:#090d12; --panel:#0f151c; --panel2:#131b24; --line:#1e2935; --line2:#273444;
+    --text:#e6edf3; --dim:#8d9aab; --faint:#566476;
+    --app:#a3e635; --api:#38d6f5; --db:#b794ff; --warn:#fbbf24; --bad:#fb7185;
+    background: radial-gradient(600px 240px at 100% 0%, rgba(56,214,245,.08), transparent 60%), var(--ink);
+    color: var(--text); border-radius: var(--radius, 14px); padding: 18px; position:relative; overflow:hidden;
+    font-family: ui-sans-serif, -apple-system, "Inter", system-ui, sans-serif; font-size: 13px; border:1px solid #18212b;
+  }
+  .mono { font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); }
+  kbd { font-family: ui-monospace, Menlo, monospace; font-size:10.5px; padding:1px 5px; border-radius:5px; border:1px solid var(--line2); background:#0b1117; color:var(--dim); }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  /* finder */
+  .finder { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; border:1px solid var(--line2); background:#0b1117; margin-bottom:12px; }
+  .finder .q { font-size:15px; }
+  .finder .q b { color: var(--api); }
+  .finder .ans { margin-left:auto; display:flex; align-items:center; gap:8px; font-size:12px; padding:4px 10px 4px 6px; border-radius:999px; background: rgba(56,214,245,.1); border:1px solid rgba(56,214,245,.35); animation: pop 4s ease-in-out infinite; }
+  .finder .ans .tk { font-weight:800; background:#0b1117; border-radius:999px; padding:1px 7px; }
+  @keyframes pop { 0%,100% { box-shadow: 0 0 0 0 rgba(56,214,245,0) } 50% { box-shadow: 0 0 0 4px rgba(56,214,245,.12) } }
+
+  /* board */
+  .board { display:grid; grid-template-columns: 34px repeat(3, minmax(0,1fr)) minmax(0,1.45fr); gap:6px; align-items:stretch; }
+  .hd { font-size:10.5px; letter-spacing:.12em; font-weight:800; color: var(--faint); padding: 0 4px 2px; display:flex; align-items:flex-end; gap:6px; }
+  .hd.app { color: var(--app); } .hd.api { color: var(--api); } .hd.db { color: var(--db); }
+  .hd small { font-weight:600; letter-spacing:0; color: var(--faint); }
+  .sl { display:grid; place-items:center; font-size:11px; color: var(--faint); border-radius:9px; background:#0b1016; border:1px solid var(--line); }
+  .sk { --c: var(--app); display:flex; align-items:center; gap:9px; padding:9px 10px; border-radius:10px; background:#0b1117; border:1px solid var(--line); position:relative; min-width:0; }
+  .sk.api { --c: var(--api); } .sk.db { --c: var(--db); }
+  .hole { width:18px; height:18px; border-radius:50%; background: radial-gradient(circle at 50% 50%, #05080b 45%, #1b2531 47%, #121a23 70%); border:1px solid #2a3644; flex:none; position:relative; }
+  .sk.lit { border-color: color-mix(in srgb, var(--c) 35%, var(--line)); background: linear-gradient(90deg, color-mix(in srgb, var(--c) 10%, transparent), transparent 80%), #0b1117; }
+  .sk.lit .hole { background: radial-gradient(circle, var(--c) 30%, color-mix(in srgb, var(--c) 30%, transparent) 55%, #121a23 72%); border-color: color-mix(in srgb, var(--c) 60%, transparent); box-shadow: 0 0 12px color-mix(in srgb, var(--c) 55%, transparent); animation: glow 2.6s ease-in-out infinite; }
+  .sk.lit:nth-child(5n+3) .hole { animation-delay: .5s } .sk.lit:nth-child(5n+4) .hole { animation-delay: 1s }
+  @keyframes glow { 50% { box-shadow: 0 0 4px color-mix(in srgb, var(--c) 30%, transparent); } }
+  .sk .pn { font-size:15px; font-weight:700; letter-spacing:-.02em; }
+  .sk.free .pn { color: var(--faint); font-weight:500; }
+  .sk.parked .hole { border-style: dashed; }
+  .sk.parked .pn { color: var(--dim); }
+  .sk.foreign { --c: var(--warn); border-color: rgba(251,191,36,.45); background: repeating-linear-gradient(135deg, rgba(251,191,36,.07), rgba(251,191,36,.07) 6px, transparent 6px, transparent 12px), #0b1117; }
+  .sk.foreign .hole { background: radial-gradient(circle, var(--warn) 30%, #121a23 70%); border-color: rgba(251,191,36,.6); }
+  .sk .ex { margin-left:auto; font-size:10.5px; color: var(--dim); white-space:nowrap; }
+  .ow > div { min-width:0; }
+  .ow { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:10px; background: var(--panel); border:1px solid var(--line); min-width:0; }
+  .ow .tk { font-weight:800; font-size:14px; letter-spacing:-.02em; }
+  .ow .tk span { color: var(--faint); }
+  .ow .s { font-size:11px; color: var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ow .go { flex:none; margin-left:auto; font-size:11px; padding:3px 8px; border-radius:7px; border:1px solid rgba(163,230,53,.45); background: rgba(163,230,53,.1); color:#eaffc4; white-space:nowrap; }
+  .ow.main { background: repeating-linear-gradient(90deg, var(--panel), var(--panel) 6px, #0e141a 6px, #0e141a 12px); }
+  .ow.next { border: 1px dashed rgba(163,230,53,.5); background: rgba(163,230,53,.05); color: #d9f99d; }
+  .ow.next .s { color: #a3c27a; }
+  .ow.warn { border-color: rgba(251,191,36,.45); background: rgba(251,191,36,.06); }
+  .row-next .sk { border-style: dashed; border-color: rgba(163,230,53,.35); }
+  .row-next .sk .hole { animation: wait 1.6s ease-in-out infinite; }
+  @keyframes wait { 50% { border-color: rgba(163,230,53,.8); box-shadow: 0 0 0 4px rgba(163,230,53,.08); } }
+  .hl { outline: 1.5px solid rgba(56,214,245,.85); outline-offset: 2px; animation: hl 2s ease-in-out infinite; }
+  @keyframes hl { 50% { outline-color: rgba(56,214,245,.3) } }
+  .legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; font-size:11.5px; color: var(--dim); }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .legend .hole { width:12px; height:12px; }
+
+  /* mini window + dock */
+  .duo { display:grid; grid-template-columns: 300px 1fr; gap:18px; align-items:start; }
+  @media (max-width: 600px) { .duo { grid-template-columns: 1fr; } .board { grid-template-columns: 30px repeat(3,1fr); } .ow { grid-column: 2 / 5; } }
+  .win { border-radius:12px; border:1px solid #2a3644; background: rgba(15,21,28,.92); box-shadow: 0 24px 60px -16px rgba(0,0,0,.8); overflow:hidden; }
+  .bar { display:flex; align-items:center; gap:6px; padding:8px 10px; border-bottom:1px solid var(--line); background:#0d131a; font-size:11.5px; color: var(--dim); }
+  .bar i { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .bar .ttl { margin-left:8px; font-weight:600; color: var(--text); }
+  .bar .pin { margin-left:auto; font-size:10.5px; padding:1px 6px; border-radius:5px; border:1px solid var(--line2); }
+  .mr { display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid #151d26; }
+  .mr .tk { font-weight:800; width:50px; }
+  .mr .tk span { color: var(--faint); }
+  .dots { display:flex; gap:4px; }
+  .dots i { width:9px; height:9px; border-radius:3px; display:inline-block; }
+  .mr .pt { font-size:11.5px; color: var(--dim); }
+  .mr .o { margin-left:auto; font-size:11px; padding:2px 8px; border-radius:7px; border:1px solid rgba(163,230,53,.45); color:#eaffc4; background: rgba(163,230,53,.1); }
+  .mr .o.st { border-color: var(--line2); color: var(--dim); background: transparent; }
+  .mr:hover { background:#121a23; }
+  .mfoot { padding:8px 10px; font-size:11px; color: var(--faint); display:flex; gap:10px; }
+
+  .dock { display:flex; flex-direction:column; gap:14px; }
+  .dockbar { display:flex; align-items:flex-end; gap:12px; padding:10px 14px; border-radius:18px; background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); width:max-content; backdrop-filter: blur(8px); }
+  .app-ic { width:54px; height:54px; border-radius:13px; position:relative; display:grid; place-items:center; background: linear-gradient(160deg, #17222d, #0a0f14); box-shadow: 0 6px 14px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08); }
+  .app-ic.other { background: linear-gradient(160deg, #3a3f47, #23272d); }
+  .badge { position:absolute; top:-6px; right:-6px; min-width:20px; height:20px; padding:0 5px; border-radius:999px; background:#ff453a; color:#fff; font-size:12px; font-weight:700; display:grid; place-items:center; box-shadow: 0 2px 6px rgba(0,0,0,.4); animation: bump 5s ease-in-out infinite; }
+  @keyframes bump { 0%,90%,100% { transform:scale(1) } 94% { transform:scale(1.25) } }
+  .tip { font-size:12.5px; line-height:1.5; color: var(--dim); }
+  .tip b { color: var(--text); }
+  .notif { display:flex; gap:10px; padding:10px 12px; border-radius:14px; background: rgba(40,46,54,.85); border:1px solid rgba(255,255,255,.08); max-width:330px; box-shadow: 0 14px 30px -10px rgba(0,0,0,.6); animation: slide 7s ease-in-out infinite; }
+  .notif .ic { width:30px; height:30px; border-radius:8px; background: linear-gradient(160deg, #17222d, #0a0f14); display:grid; place-items:center; flex:none; }
+  .notif b { font-size:12.5px; } .notif p { margin:2px 0 0; font-size:12px; color:#c4ccd6; }
+  @keyframes slide { 0%,100% { transform:none } 4% { transform: translateX(16px) } 9% { transform:none } }
+
+  .notes { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:10px 18px; margin-top:14px; font-size:13px; line-height:1.5; }
+  .notes div b { display:block; } .notes div p { margin:2px 0 0; color: var(--muted-foreground, #8b98a8); }
+
+  @media (prefers-reduced-motion: reduce) { *, *::after, *::before { animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="intro">
+    <h2>3 · Port Switchboard: one screen answers "what's on :8003?"</h2>
+    <p>The script hands out ports in slots: slot n is APP 302n, API 800n, DB 543n. So the cleanest map is literally a switchboard: one row per slot, one lit socket per listening port, and the owner at the end of the row.</p>
+  </div>
+
+  <div class="cap"><span class="step-n">A</span><b>Switchboard tab, next to "Worktrees"</b></div>
+  <div class="mock">
+    <div class="finder">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8d9aab" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <span class="q mono">what's on <b>:8003</b></span>
+      <span class="ans mono"><span class="tk">#2130</span> API · docker web · up 2h · <span style="color:var(--api)">copy ⧉</span></span>
+    </div>
+
+    <div class="board">
+      <div class="hd">SLOT</div>
+      <div class="hd app">APP <small class="mono">302·</small></div>
+      <div class="hd api">API <small class="mono">800·</small></div>
+      <div class="hd db">DB <small class="mono">543·</small></div>
+      <div class="hd">OWNER</div>
+
+      <!-- slot 0: main -->
+      <div class="sl mono">0</div>
+      <div class="sk app parked"><span class="hole"></span><span class="pn mono">3000</span></div>
+      <div class="sk api parked"><span class="hole"></span><span class="pn mono">8000</span></div>
+      <div class="sk db parked"><span class="hole"></span><span class="pn mono">5432</span></div>
+      <div class="ow main"><div><div class="tk" style="font-size:12.5px">main checkout</div><div class="s mono">~/code/Grubbs · not a worktree</div></div></div>
+
+      <!-- slot 1 -->
+      <div class="sl mono">1</div>
+      <div class="sk app lit"><span class="hole"></span><span class="pn mono">3021</span></div>
+      <div class="sk api lit"><span class="hole"></span><span class="pn mono">8001</span></div>
+      <div class="sk db lit"><span class="hole"></span><span class="pn mono">5433</span></div>
+      <div class="ow"><div><div class="tk mono"><span>#</span>2076</div><div class="s mono">mithilesh/2076</div></div><button class="go">Open ↗</button></div>
+
+      <!-- slot 2 -->
+      <div class="sl mono">2</div>
+      <div class="sk app lit"><span class="hole"></span><span class="pn mono">3022</span></div>
+      <div class="sk api lit"><span class="hole"></span><span class="pn mono">8002</span></div>
+      <div class="sk db lit"><span class="hole"></span><span class="pn mono">5434</span></div>
+      <div class="ow"><div><div class="tk mono"><span>#</span>1997</div><div class="s mono">mithilesh/1997</div></div><button class="go">Open ↗</button></div>
+
+      <!-- slot 3 -->
+      <div class="sl mono">3</div>
+      <div class="sk app lit"><span class="hole"></span><span class="pn mono">3023</span></div>
+      <div class="sk api lit hl"><span class="hole"></span><span class="pn mono">8003</span></div>
+      <div class="sk db lit"><span class="hole"></span><span class="pn mono">5435</span></div>
+      <div class="ow"><div><div class="tk mono"><span>#</span>2130</div><div class="s mono">mithilesh/2130</div></div><button class="go">Open ↗</button></div>
+
+      <!-- slot 4 -->
+      <div class="sl mono">4</div>
+      <div class="sk app lit"><span class="hole"></span><span class="pn mono">3024</span></div>
+      <div class="sk api lit"><span class="hole"></span><span class="pn mono">8004</span></div>
+      <div class="sk db lit"><span class="hole"></span><span class="pn mono">5436</span></div>
+      <div class="ow"><div><div class="tk mono"><span>#</span>2070</div><div class="s mono">mithilesh/2070 · <span style="color:var(--warn)">dirty</span></div></div><button class="go">Open ↗</button></div>
+
+      <!-- slot 5: next -->
+      <div class="sl mono">5</div>
+      <div class="row-next" style="display:contents">
+        <div class="sk app free"><span class="hole"></span><span class="pn mono">3025</span></div>
+        <div class="sk api free"><span class="hole"></span><span class="pn mono">8005</span></div>
+        <div class="sk db free"><span class="hole"></span><span class="pn mono">5437</span></div>
+      </div>
+      <div class="ow next"><div><div class="tk" style="font-size:12.5px">↳ next launch lands here</div><div class="s mono">#2140 → :3025 :8005 :5437</div></div></div>
+      <!-- slot 6: blocked by a foreign process -->
+      <div class="sl mono">6</div>
+      <div class="sk app foreign"><span class="hole"></span><span class="pn mono">3026</span><span class="ex mono">node</span></div>
+      <div class="sk api free"><span class="hole"></span><span class="pn mono">8006</span></div>
+      <div class="sk db free"><span class="hole"></span><span class="pn mono">5438</span></div>
+      <div class="ow warn"><div><div class="tk" style="font-size:12.5px;color:#fde7a6">example: 3026 squatted</div><div class="s mono">not a worktree · <span style="color:var(--warn);text-decoration:underline">kill</span> · <span style="text-decoration:underline">reveal</span></div></div></div>
+
+    </div>
+
+    <div class="legend">
+      <span><span class="hole" style="background:radial-gradient(circle,#a3e635 30%,#121a23 72%);border-color:#a3e635"></span>listening</span>
+      <span><span class="hole" style="border-style:dashed"></span>reserved, not running</span>
+      <span><span class="hole"></span>free</span>
+      <span><span class="hole" style="background:radial-gradient(circle,#fbbf24 30%,#121a23 72%);border-color:#fbbf24"></span>taken by something else</span>
+    </div>
+  </div>
+
+  <div class="cap"><span class="step-n">B</span><b>Mini window + Dock: know what's running without opening the app</b></div>
+  <div class="mock">
+    <div class="duo">
+      <div class="win">
+        <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span class="ttl">worktrees</span><span class="pin mono">📌 on top</span></div>
+        <div class="mr"><span class="tk mono"><span>#</span>2130</span><span class="dots"><i style="background:#a3e635"></i><i style="background:#38d6f5"></i><i style="background:#b794ff"></i></span><span class="pt mono">:3023</span><button class="o">Open</button></div>
+        <div class="mr"><span class="tk mono"><span>#</span>2070</span><span class="dots"><i style="background:#a3e635"></i><i style="background:#38d6f5;opacity:.35"></i><i style="background:#b794ff"></i></span><span class="pt mono">:3024</span><button class="o">Open</button></div>
+        <div class="mr"><span class="tk mono"><span>#</span>1997</span><span class="dots"><i style="background:#a3e635"></i><i style="background:#38d6f5"></i><i style="background:#b794ff"></i></span><span class="pt mono">:3022</span><button class="o">Open</button></div>
+        <div class="mr" style="opacity:.6"><span class="tk mono"><span>#</span>2076</span><span class="dots"><i style="background:#27323f"></i><i style="background:#27323f"></i><i style="background:#27323f"></i></span><span class="pt mono">parked</span><button class="o st">▶ Start</button></div>
+        <div class="mfoot mono"><span><kbd>⌘K</kbd> launch</span><span><kbd>1-4</kbd> open</span></div>
+      </div>
+
+      <div class="dock">
+        <div class="dockbar">
+          <div class="app-ic other"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c9d1d9" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/></svg></div>
+          <div class="app-ic">
+            <svg width="34" height="34" viewBox="0 0 26 26" fill="none">
+              <path d="M6 23V4" stroke="#3b4a5c" stroke-width="2.2" stroke-linecap="round"/>
+              <path d="M6 16c0-4 3-5 7-5h1" stroke="#3b4a5c" stroke-width="2.2" stroke-linecap="round"/>
+              <path d="M6 9c0-3 3-4 6-4h7" stroke="#3b4a5c" stroke-width="2.2" stroke-linecap="round"/>
+              <path d="M6 21c0-2 2-3 5-3h9" stroke="#3b4a5c" stroke-width="2.2" stroke-linecap="round"/>
+              <circle cx="20" cy="5" r="3" fill="#a3e635"/><circle cx="15" cy="11" r="3" fill="#38d6f5"/><circle cx="21" cy="18" r="3" fill="#b794ff"/>
+            </svg>
+            <span class="badge">3</span>
+          </div>
+          <div class="app-ic other"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c9d1d9" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
+        </div>
+        <div class="notif">
+          <div class="ic"><svg width="18" height="18" viewBox="0 0 26 26"><circle cx="20" cy="5" r="3" fill="#a3e635"/><circle cx="15" cy="11" r="3" fill="#38d6f5"/><circle cx="21" cy="18" r="3" fill="#b794ff"/><path d="M6 23V4" stroke="#3b4a5c" stroke-width="2.2" stroke-linecap="round"/></svg></div>
+          <div><b>#2140 is up · 43s</b><p class="mono">app :3025 · api :8005 · db :5437</p><p>Click to open · ⌥-click copies the URLs</p></div>
+        </div>
+        <div class="tip"><b>The badge counts fully-up worktrees</b> (today it counts anything with a process). A system notification on launch-done, crash or restart puts the ports in the notification itself, so you have them even if you never look at the app.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div><b>It's built from data you already have</b><p>Ports come from each worktree's <span class="mono">.worktree.env</span>, lit/unlit from <span class="mono">lsof -iTCP -sTCP:LISTEN</span>, which the script already uses in <span class="mono">port_busy</span>. "Foreign" means a listener on a slot port with no worktree behind it.</p></div>
+    <div><b>Explains the surprises</b><p>If a stray <span class="mono">next dev</span> sits on :3026, <span class="mono">pick_ports</span> silently skips slot 6 and the next worktree gets odd ports. The board shows the squatter, with kill and reveal.</p></div>
+  </div>
+</div>
+</body>
+</html>
