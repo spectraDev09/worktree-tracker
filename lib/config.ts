@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -29,14 +28,11 @@ export function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv 
   return { ...env, PATH: CHILD_PATH, HOME, ...extra } as unknown as NodeJS.ProcessEnv;
 }
 
-// grubbs-worktree.sh is the source of truth. Call it through the path ~/.local/bin/launch-worktree
-// points at (one level, as the script resolves itself), so the script computes the same workspace
-// root it does from a terminal.
+// grubbs-worktree.sh is the source of truth: the app's own copy in scripts/, not the playbook's
+// that ~/.local/bin/launch-worktree points at. The server always runs from the app directory
+// (npm scripts and the launchd agent's WorkingDirectory).
 export function scriptPath(): string {
-  if (process.env.GRUBBS_WT_SCRIPT) return process.env.GRUBBS_WT_SCRIPT;
-  const link = path.join(HOME, ".local/bin/launch-worktree");
-  const target = fs.readlinkSync(link);
-  return path.isAbsolute(target) ? target : path.resolve(path.dirname(link), target);
+  return process.env.GRUBBS_WT_SCRIPT || path.join(process.cwd(), "scripts/grubbs-worktree.sh");
 }
 
 export const STATE_DIR = path.join(HOME, "Library/Application Support/Grubbs Worktrees");

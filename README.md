@@ -16,7 +16,10 @@ A local PWA that lists the Grubbs ticket worktrees (`~/code/Grubbs-worktrees/gru
   Finder, right in the worktree folder. Logs follow in the card (app, api, the launch's own log).
 
 It holds no worktree logic of its own. Every read and action goes through
-`grubbs-worktree.sh` (the target of `~/.local/bin/launch-worktree`, override with `GRUBBS_WT_SCRIPT`):
+the app's own copy of `grubbs-worktree.sh` in `scripts/` (override with `GRUBBS_WT_SCRIPT`). It is
+forked from the playbook's, which `~/.local/bin/launch-worktree` still runs, and finds the Grubbs
+workspace through `GRUBBS_ROOT` (default `~/code/Grubbs`). Don't run its `install`: that would
+re-point the terminal commands at this copy.
 
 | App                     | Script                                                   |
 | ----------------------- | -------------------------------------------------------- |

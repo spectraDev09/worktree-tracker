@@ -32,7 +32,7 @@ function plist() {
     NODE_ENV: "production",
     NEXT_TELEMETRY_DISABLED: "1",
   };
-  for (const k of ["GRUBBS_WT_HOME", "GRUBBS_WT_SCRIPT", "GRUBBS_WT_PREFIX", "NODE20_BIN"]) {
+  for (const k of ["GRUBBS_ROOT", "GRUBBS_WT_HOME", "GRUBBS_WT_SCRIPT", "GRUBBS_WT_PREFIX", "NODE20_BIN"]) {
     if (process.env[k]) env[k] = process.env[k];
   }
   const args = [process.execPath, path.join(APP_DIR, "node_modules/next/dist/bin/next"), "start", "-H", "127.0.0.1", "-p", PORT];
